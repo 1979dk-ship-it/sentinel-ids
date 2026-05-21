@@ -1,0 +1,20 @@
+# Packet Capture
+scapy>=2.5.0
+
+# TUI
+textual>=0.89.0
+
+# Web API
+fastapi>=0.115.0
+uvicorn[standard]>=0.30.0
+websockets>=13.0
+
+# Database
+sqlalchemy>=2.0.0
+aiosqlite>=0.20.0
+
+# Config
+pyyaml>=6.0.0
+
+# GeoIP (Phase 11)
+geoip2>=4.8.0

@@ -1,0 +1,31 @@
+detectors:
+  port_scan:
+    threshold_ports: 15
+    window_seconds: 5
+  brute_force:
+    ssh_threshold: 5
+    ssh_window_seconds: 30
+    http_threshold: 20
+    http_window_seconds: 60
+  syn_flood:
+    ratio_medium: 10
+    ratio_high: 50
+    window_seconds: 5
+  arp_spoof:
+    gratuitous_threshold: 3
+    gratuitous_window_seconds: 60
+  dns_anomaly:
+    query_threshold: 50
+    query_window_seconds: 60
+    subdomain_max_length: 50
+
+alerts:
+  dedup_window_seconds: 60
+  pcap_capture_seconds: 30
+
+database:
+  path: sentinel.db
+  packet_retention_hours: 48
+
+network:
+  interface: auto
