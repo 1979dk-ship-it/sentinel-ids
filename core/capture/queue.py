@@ -5,8 +5,8 @@ from typing import List
 
 class PacketQueue:
     """
-    Fan-out queue: producer אחד (capture engine), צרכנים מרובים (detectors).
-    כל subscriber מקבל queue נפרד ורואה כל packet באופן עצמאי.
+    Fan-out queue: one producer (capture engine), multiple consumers (detectors).
+    Each subscriber gets its own Queue and receives every packet independently.
     """
 
     def __init__(self, maxsize: int = 1000):
@@ -15,21 +15,21 @@ class PacketQueue:
         self._maxsize = maxsize
 
     def subscribe(self) -> queue.Queue:
-        """רושם צרכן חדש. מחזיר Queue שיקבל את כל ה-Packets מעכשיו."""
+        """Register a new consumer. Returns a Queue that will receive all future packets."""
         q = queue.Queue(maxsize=self._maxsize)
         with self._lock:
             self._subscribers.append(q)
         return q
 
     def put(self, packet: dict) -> None:
-        """מפיץ packet לכל ה-subscribers הרשומים."""
+        """Distribute a packet to all registered subscribers."""
         with self._lock:
             subscribers = list(self._subscribers)
         for q in subscribers:
             try:
                 q.put_nowait(packet)
             except queue.Full:
-                pass  # צרכן איטי מדי – packet נזנח במקום לחסום
+                pass  # slow consumer - drop packet rather than block
 
     @property
     def subscriber_count(self) -> int:
