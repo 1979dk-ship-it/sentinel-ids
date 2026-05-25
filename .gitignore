@@ -49,3 +49,7 @@ config/local.yaml
 
 # GeoIP database (large binary)
 *.mmdb
+
+# Claude Code session instructions – local only, never publish
+CLAUDE.md
+.claude/
