@@ -1,6 +1,6 @@
-import threading                                        # Thread for non-blocking capture loop
-from scapy.sendrecv import sniff                        # captures packets live from a network interface
-from scapy.utils import rdpcap                          # reads a .pcap file and returns a list of packets
+import threading
+from scapy.sendrecv import sniff
+from scapy.utils import rdpcap
 
 from core.capture.parser import PacketParser
 from core.capture.queue import PacketQueue
@@ -8,59 +8,60 @@ from core.capture.queue import PacketQueue
 
 class PacketCapture:
     """
-    Drives packet ingestion from a live interface or a PCAP file.
-    Runs Scapy's sniff() on a dedicated daemon thread so the rest of
-    the application (UI, detectors) is never blocked.
+    Manages the lifecycle of the packet sniffing process.
+    Operates on a dedicated daemon thread to ensure non-blocking 
+    packet ingestion for the rest of the application.
     """
 
     def __init__(self, interface: str, parser: PacketParser, queue: PacketQueue):
-        self._interface = interface                     # NIC name e.g. "Ethernet" or "\\Device\\NPF_{GUID}"
-        self._parser = parser                           # converts raw Scapy packets to flat dicts
-        self._queue = queue                             # fan-out queue – distributes packets to all detectors
-        self._thread: threading.Thread | None = None   # reference to capture thread; None before start()
-        self._stop_event = threading.Event()            # signals the capture loop to exit cleanly
+        self._interface = interface
+        self._parser = parser
+        self._queue = queue
+        self._thread: threading.Thread | None = None
+        self._stop_event = threading.Event()
 
     def start(self) -> None:
-        """Start live capture on the configured interface."""
-        if self._thread and self._thread.is_alive():   # prevent double-start
+        """Starts the capture loop on a background thread if not already running."""
+        if self._thread and self._thread.is_alive():
             return
-        self._stop_event.clear()                        # reset flag in case start() is called after stop()
+            
+        self._stop_event.clear()
         self._thread = threading.Thread(
             target=self._capture_loop,
-            daemon=True,                                # daemon thread exits automatically when main thread ends
+            daemon=True,
             name="packet-capture"
         )
         self._thread.start()
 
     def stop(self) -> None:
-        """Signal the capture loop to stop and wait for the thread to finish."""
-        self._stop_event.set()                          # tell stop_filter to return True on the next packet
+        """Signals the capture loop to terminate and waits for clean shutdown."""
+        self._stop_event.set()
         if self._thread:
-            self._thread.join(timeout=3)                # wait up to 3s – avoids hanging on quiet interfaces
+            self._thread.join(timeout=3)
 
     @property
-    def is_running(self) -> bool:                       # read-only – used by health checks and the TUI
+    def is_running(self) -> bool:
+        """Returns True if the capture thread is currently active."""
         return self._thread is not None and self._thread.is_alive()
 
     def replay_pcap(self, path: str) -> None:
-        """Feed a .pcap file through the full pipeline synchronously (dev / testing mode)."""
-        packets = rdpcap(path)                          # load all packets from file into memory
+        """
+        Synchronously processes a PCAP file through the pipeline.
+        Intended for testing and development environments.
+        """
+        packets = rdpcap(path)
         for pkt in packets:
-            self._handle_packet(pkt)                    # reuse the same handler as live capture
+            self._handle_packet(pkt)
 
-    # ------------------------------------------------------------------
-    # private
-    # ------------------------------------------------------------------
-
-    def _capture_loop(self) -> None:                    # runs on the dedicated capture thread
+    def _capture_loop(self) -> None:
         sniff(
             iface=self._interface,
-            prn=self._handle_packet,                    # callback invoked once per captured packet
-            store=False,                                # do not accumulate packets in RAM
-            stop_filter=lambda _: self._stop_event.is_set()  # stop after next packet once stop() is called
+            prn=self._handle_packet,
+            store=False,
+            stop_filter=lambda _: self._stop_event.is_set()
         )
 
-    def _handle_packet(self, raw_packet) -> None:       # called by both sniff() and replay_pcap()
-        parsed = self._parser.parse(raw_packet)         # convert raw Scapy packet → flat dict
+    def _handle_packet(self, raw_packet) -> None:
+        parsed = self._parser.parse(raw_packet)
         if parsed:
-            self._queue.put(parsed)                     # distribute to all registered detectors
+            self._queue.put(parsed)
