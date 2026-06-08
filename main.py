@@ -1,11 +1,14 @@
 import queue
 import signal
 import sys
+import threading
 import yaml
 
+from core.alerts.alert import Alert
 from core.capture.engine import PacketCapture
 from core.capture.parser import PacketParser
 from core.capture.queue import PacketQueue
+from core.detectors.port_scan import PortScanDetector
 
 
 def _load_config(path: str = "config/config.yaml") -> dict:
@@ -31,9 +34,27 @@ def _print_packet(p: dict) -> None:
     print(line)
 
 
+def _print_alert(a: Alert) -> None:
+    """Formats an Alert into a colored stdout line."""
+    colors = {"HIGH": "\033[91m", "MEDIUM": "\033[93m", "LOW": "\033[92m"}
+    reset  = "\033[0m"
+    color  = colors.get(a.severity, "")
+    print(f"{color}[ALERT] [{a.severity:<6}] PORT_SCAN  src={a.src_ip}  {a.details}{reset}")
+
+
+def _alert_loop(alert_queue: queue.Queue) -> None:
+    """Runs on a background thread – prints alerts as they arrive."""
+    while True:
+        try:
+            alert = alert_queue.get(timeout=1)
+            _print_alert(alert)
+        except queue.Empty:
+            continue
+
+
 def _log_loop(consumer: queue.Queue) -> None:
     """
-    Main execution loop. Consumes events from the packet queue 
+    Main execution loop. Consumes events from the packet queue
     and handles output until interrupted.
     """
     while True:
@@ -51,15 +72,25 @@ def main() -> None:
         interface = None
 
     # Dependency Injection & Pipeline Assembly
-    parser    = PacketParser()
-    pkt_queue = PacketQueue()
-    consumer  = pkt_queue.subscribe()
-    capture   = PacketCapture(interface=interface, parser=parser, queue=pkt_queue)
+    parser      = PacketParser()
+    pkt_queue   = PacketQueue()
+    alert_queue = queue.Queue()
+
+    consumer    = pkt_queue.subscribe()
+    capture     = PacketCapture(interface=interface, parser=parser, queue=pkt_queue)
+    ps_cfg   = config["detectors"]["port_scan"]
+    detector = PortScanDetector(
+        pkt_queue.subscribe(),
+        alert_queue,
+        threshold_ports = ps_cfg["threshold_ports"],
+        window_seconds  = ps_cfg["window_seconds"],
+    )
 
     def _shutdown(sig, frame):
         """Ensures resources are freed correctly on SIGINT."""
         print("\n[*] Stopping capture...")
         capture.stop()
+        detector.stop()
         sys.exit(0)
 
     signal.signal(signal.SIGINT, _shutdown)
@@ -68,6 +99,9 @@ def main() -> None:
     print("[*] Press Ctrl+C to stop\n")
 
     capture.start()
+    detector.start()
+
+    threading.Thread(target=_alert_loop, args=(alert_queue,), daemon=True).start()
     _log_loop(consumer)
 
 
