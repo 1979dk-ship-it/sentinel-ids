@@ -171,11 +171,11 @@ python main.py
 
 | Phase | Description | Status |
 |-------|-------------|--------|
-| 0 | Environment setup, project scaffold | ✅ Done |
-| 1 | Packet capture engine | 🔄 In progress |
-| 2 | Port scan detector | ⬜ Pending |
+| 0 | Environment setup, project scaffold | ✅ Done – v0.0.1 |
+| 1 | Packet capture engine | ✅ Done – v0.1.0 |
+| 2 | Port scan detector | ✅ Done – v0.2.0 |
 | 3 | Terminal UI | ⬜ Pending |
-| 4 | ARP spoof detector | ⬜ Pending |
+| 4 | ARP spoof detector | ✅ Done – v0.4.0 |
 | 5 | Database & logging | ⬜ Pending |
 | 6 | Brute force detector | ⬜ Pending |
 | 7 | DNS anomaly detector | ⬜ Pending |
