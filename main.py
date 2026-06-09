@@ -8,6 +8,7 @@ from core.alerts.alert import Alert
 from core.capture.engine import PacketCapture
 from core.capture.parser import PacketParser
 from core.capture.queue import PacketQueue
+from core.detectors.arp_spoof import ArpSpoofDetector
 from core.detectors.port_scan import PortScanDetector
 
 
@@ -39,7 +40,7 @@ def _print_alert(a: Alert) -> None:
     colors = {"HIGH": "\033[91m", "MEDIUM": "\033[93m", "LOW": "\033[92m"}
     reset  = "\033[0m"
     color  = colors.get(a.severity, "")
-    print(f"{color}[ALERT] [{a.severity:<6}] PORT_SCAN  src={a.src_ip}  {a.details}{reset}")
+    print(f"{color}[ALERT] [{a.severity:<6}] {a.type:<12}  src={a.src_ip}  {a.details}{reset}")
 
 
 def _alert_loop(alert_queue: queue.Queue) -> None:
@@ -78,19 +79,28 @@ def main() -> None:
 
     consumer    = pkt_queue.subscribe()
     capture     = PacketCapture(interface=interface, parser=parser, queue=pkt_queue)
-    ps_cfg   = config["detectors"]["port_scan"]
-    detector = PortScanDetector(
+    ps_cfg      = config["detectors"]["port_scan"]
+    ps_detector = PortScanDetector(
         pkt_queue.subscribe(),
         alert_queue,
         threshold_ports = ps_cfg["threshold_ports"],
         window_seconds  = ps_cfg["window_seconds"],
     )
 
+    arp_cfg      = config["detectors"]["arp_spoof"]
+    arp_detector = ArpSpoofDetector(
+        pkt_queue.subscribe(),
+        alert_queue,
+        gratuitous_threshold      = arp_cfg["gratuitous_threshold"],
+        gratuitous_window_seconds = arp_cfg["gratuitous_window_seconds"],
+    )
+
     def _shutdown(sig, frame):
         """Ensures resources are freed correctly on SIGINT."""
         print("\n[*] Stopping capture...")
         capture.stop()
-        detector.stop()
+        ps_detector.stop()
+        arp_detector.stop()
         sys.exit(0)
 
     signal.signal(signal.SIGINT, _shutdown)
@@ -99,7 +109,8 @@ def main() -> None:
     print("[*] Press Ctrl+C to stop\n")
 
     capture.start()
-    detector.start()
+    ps_detector.start()
+    arp_detector.start()
 
     threading.Thread(target=_alert_loop, args=(alert_queue,), daemon=True).start()
     _log_loop(consumer)
