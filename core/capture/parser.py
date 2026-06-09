@@ -40,6 +40,7 @@ class PacketParser:
             "flags":     None,
             "seq":       None,
             "payload":   b"",
+            "arp_op":    None,
         }
 
     def _extract_ethernet(self, packet, result: dict) -> None:
@@ -85,6 +86,7 @@ class PacketParser:
         result["dst_ip"]   = arp.pdst
         result["src_mac"]  = arp.hwsrc
         result["dst_mac"]  = arp.hwdst
+        result["arp_op"]   = arp.op   # 1=Request, 2=Reply
 
     @staticmethod
     def _protocol_name(proto_number: int) -> str:
