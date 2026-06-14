@@ -9,6 +9,7 @@ from core.capture.engine import PacketCapture
 from core.capture.parser import PacketParser
 from core.capture.queue import PacketQueue
 from core.detectors.arp_spoof import ArpSpoofDetector
+from core.detectors.brute_force import BruteForceDetector
 from core.detectors.port_scan import PortScanDetector
 
 
@@ -95,12 +96,26 @@ def main() -> None:
         gratuitous_window_seconds = arp_cfg["gratuitous_window_seconds"],
     )
 
+    bf_cfg      = config["detectors"]["brute_force"]
+    bf_detector = BruteForceDetector(
+        pkt_queue.subscribe(),
+        alert_queue,
+        ssh_threshold        = bf_cfg["ssh_threshold"],
+        ssh_window_seconds   = bf_cfg["ssh_window_seconds"],
+        http_threshold       = bf_cfg["http_threshold"],
+        http_window_seconds  = bf_cfg["http_window_seconds"],
+        https_threshold      = bf_cfg["https_threshold"],
+        https_window_seconds = bf_cfg["https_window_seconds"],
+        cooldown_seconds     = bf_cfg.get("cooldown_seconds", 60),
+    )
+
     def _shutdown(sig, frame):
         """Ensures resources are freed correctly on SIGINT."""
         print("\n[*] Stopping capture...")
         capture.stop()
         ps_detector.stop()
         arp_detector.stop()
+        bf_detector.stop()
         sys.exit(0)
 
     signal.signal(signal.SIGINT, _shutdown)
@@ -111,6 +126,7 @@ def main() -> None:
     capture.start()
     ps_detector.start()
     arp_detector.start()
+    bf_detector.start()
 
     threading.Thread(target=_alert_loop, args=(alert_queue,), daemon=True).start()
     _log_loop(consumer)
