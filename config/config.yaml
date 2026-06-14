@@ -7,6 +7,8 @@ detectors:
     ssh_window_seconds: 30
     http_threshold: 20
     http_window_seconds: 60
+    https_threshold: 100
+    https_window_seconds: 60
   syn_flood:
     ratio_medium: 10
     ratio_high: 50
