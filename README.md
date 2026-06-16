@@ -177,8 +177,8 @@ python main.py
 | 3 | Terminal UI | ⬜ Pending |
 | 4 | ARP spoof detector | ✅ Done – v0.4.0 |
 | 5 | Database & logging | ⬜ Pending |
-| 6 | Brute force detector | ⬜ Pending |
-| 7 | DNS anomaly detector | ⬜ Pending |
+| 6 | Brute force detector | ✅ Done – v0.6.0 |
+| 7 | DNS anomaly detector | ✅ Done – v0.7.0 |
 | 8 | SYN flood detector | ⬜ Pending |
 | 9 | Web dashboard | ⬜ Pending |
 | 10 | Response engine | ⬜ Pending |
