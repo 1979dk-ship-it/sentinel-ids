@@ -1,9 +1,9 @@
 import queue
 import threading
 import time
-from collections import defaultdict, deque
 
 from core.alerts.alert import Alert
+from core.utils.sliding_window import SlidingWindow
 
 
 # Flag combinations that indicate stealth scans
@@ -31,11 +31,14 @@ class PortScanDetector:
         threshold_ports: int = 15,
         window_seconds:  int = 5,
     ):
-        self._packets          = packet_queue
-        self._alerts           = alert_queue
-        self._threshold_ports  = threshold_ports
-        self._window_seconds   = window_seconds
-        self._window: dict[str, deque] = defaultdict(deque)
+        self._packets         = packet_queue
+        self._alerts          = alert_queue
+        self._threshold_ports = threshold_ports
+        self._window_seconds  = window_seconds
+
+        # src_ip → SlidingWindow keyed by dst_port
+        self._windows: dict[str, SlidingWindow] = {}
+
         self._thread: threading.Thread | None = None
         self._stop_event = threading.Event()
 
@@ -87,23 +90,20 @@ class PortScanDetector:
         if not src_ip or not dst_port:
             return
 
-        self._window[src_ip].append((dst_port, now))
-        self._evict(src_ip, now)
+        window = self._windows.get(src_ip)
+        if window is None:
+            window = SlidingWindow(self._window_seconds)
+            self._windows[src_ip] = window
 
-        unique_ports = {port for port, _ in self._window[src_ip]}
-        if len(unique_ports) > self._threshold_ports:
+        window.add(now, dst_port)
+
+        if window.distinct() > self._threshold_ports:
             self._emit(src_ip, "HIGH", {
                 "scan_type":   "SYN",
-                "port_count":  len(unique_ports),
-                "ports":       sorted(unique_ports),
+                "port_count":  window.distinct(),
+                "ports":       sorted(window.keys()),
             })
-            self._window[src_ip].clear()   # reset so we don't re-alert on same burst
-
-    def _evict(self, src_ip: str, now: float) -> None:
-        """Remove entries older than WINDOW_SECONDS from the front of the deque."""
-        window = self._window[src_ip]
-        while window and (now - window[0][1]) > self._window_seconds:
-            window.popleft()
+            window.clear()   # reset so we don't re-alert on same burst
 
     def _emit(self, src_ip: str, severity: str, details: dict) -> None:
         """Push an Alert onto the alert queue."""

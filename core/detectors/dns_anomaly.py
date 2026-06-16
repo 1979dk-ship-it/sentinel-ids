@@ -2,13 +2,12 @@ import math
 import queue
 import threading
 import time
-from collections import defaultdict, deque
 
 from core.alerts.alert import Alert
+from core.utils.cooldown import CooldownTracker
+from core.utils.sliding_window import SlidingWindow
 
 _DNS_PORT = 53
-# DNSQR qtype value for TXT records
-_QTYPE_TXT = 16
 
 
 def _shannon_entropy(name: str) -> float:
@@ -59,13 +58,10 @@ class DnsAnomalyDetector:
         self._query_window         = query_window_seconds
         self._subdomain_max_length = subdomain_max_length
         self._entropy_threshold    = entropy_threshold
-        self._cooldown_seconds     = cooldown_seconds
 
-        # src_ip → deque of (timestamp, qname) for frequency tracking
-        self._window: dict[str, deque] = defaultdict(deque)
-
-        # (src_ip, qname) → timestamp of last alert
-        self._cooldown: dict[tuple, float] = {}
+        # src_ip → SlidingWindow keyed by qname
+        self._windows:  dict[str, SlidingWindow] = {}
+        self._cooldown: CooldownTracker          = CooldownTracker(cooldown_seconds)
 
         self._thread: threading.Thread | None = None
         self._stop_event = threading.Event()
@@ -111,15 +107,14 @@ class DnsAnomalyDetector:
             return
 
         cooldown_key = (src_ip, qname)
-        last_alert   = self._cooldown.get(cooldown_key, 0.0)
-        if now - last_alert < self._cooldown_seconds:
+        if self._cooldown.is_cooling(cooldown_key, now):
             return
 
         # Signal 1 – subdomain too long (tunneling payload)
         if len(subdomain) > self._subdomain_max_length:
             self._emit(src_ip, qname, qtype, "LONG_SUBDOMAIN",
                        "HIGH", len(subdomain), now)
-            self._cooldown[cooldown_key] = now
+            self._cooldown.mark(cooldown_key, now)
             return
 
         # Signal 2 – high Shannon entropy (encoded data)
@@ -127,20 +122,20 @@ class DnsAnomalyDetector:
         if entropy > self._entropy_threshold:
             self._emit(src_ip, qname, qtype, "HIGH_ENTROPY",
                        "HIGH", entropy, now)
-            self._cooldown[cooldown_key] = now
+            self._cooldown.mark(cooldown_key, now)
             return
 
-        # Signal 3 – query flood to the same domain
-        log = self._window[src_ip]
-        log.append((now, qname))
-        while log and (now - log[0][0]) > self._query_window:
-            log.popleft()
+        # Signal 3 – query flood to the same domain (O(1) via SlidingWindow)
+        window = self._windows.get(src_ip)
+        if window is None:
+            window = SlidingWindow(self._query_window)
+            self._windows[src_ip] = window
 
-        same_domain_count = sum(1 for _, n in log if n == qname)
-        if same_domain_count >= self._query_threshold:
+        count = window.add(now, qname)
+        if count >= self._query_threshold:
             self._emit(src_ip, qname, qtype, "QUERY_FLOOD",
-                       "MEDIUM", same_domain_count, now)
-            self._cooldown[cooldown_key] = now
+                       "MEDIUM", count, now)
+            self._cooldown.mark(cooldown_key, now)
 
     def _emit(
         self,
