@@ -20,6 +20,8 @@ detectors:
     query_threshold: 50
     query_window_seconds: 60
     subdomain_max_length: 50
+    entropy_threshold: 3.5
+    cooldown_seconds: 60
 
 alerts:
   dedup_window_seconds: 60
