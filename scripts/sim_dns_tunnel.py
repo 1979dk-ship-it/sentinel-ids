@@ -1,8 +1,8 @@
 """
 DNS Tunneling Simulation
 ========================
-Sends three types of suspicious DNS queries over loopback to trigger
-the DnsAnomalyDetector's three detection signals:
+Sends three types of suspicious DNS queries to trigger the
+DnsAnomalyDetector's three detection signals:
 
   1. LONG_SUBDOMAIN  – one query with a 62-char Base32-like subdomain
   2. HIGH_ENTROPY    – one query with a Base32-encoded payload (high entropy)
@@ -15,21 +15,24 @@ Run with admin privileges (Scapy needs raw socket access):
 import base64
 import time
 
-from scapy.all import send
+from scapy.all import conf
 from scapy.layers.dns import DNS, DNSQR
 from scapy.layers.inet import IP, UDP
+from scapy.sendrecv import send
 
-TARGET_IP = "127.0.0.1"
-DNS_PORT  = 53
+IFACE    = conf.iface
+ATTACKER = "10.0.0.88"     # fake source IP – simulates an external attacker
+TARGET   = "192.168.1.1"   # gateway – forces traffic through the physical NIC
+DNS_PORT = 53
 
 
 def _dns_query(qname: str) -> None:
     pkt = (
-        IP(src=TARGET_IP, dst=TARGET_IP)
+        IP(src=ATTACKER, dst=TARGET)
         / UDP(sport=54321, dport=DNS_PORT)
         / DNS(rd=1, qd=DNSQR(qname=qname))
     )
-    send(pkt, verbose=False)
+    send(pkt, iface=IFACE, verbose=False)
 
 
 def sim_long_subdomain() -> None:
