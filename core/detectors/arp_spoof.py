@@ -1,9 +1,9 @@
 import queue
 import threading
 import time
-from collections import defaultdict, deque
 
 from core.alerts.alert import Alert
+from core.utils.sliding_window import SlidingWindow
 
 
 class ArpSpoofDetector:
@@ -30,8 +30,13 @@ class ArpSpoofDetector:
         self._gratuitous_threshold      = gratuitous_threshold
         self._gratuitous_window_seconds = gratuitous_window_seconds
 
-        self._arp_table: dict[str, str]          = {}
-        self._gratuitous_log: dict[str, deque]   = defaultdict(deque)
+        # IP → MAC mapping. This is real network state, not a time window,
+        # so it stays a plain dict. Growth is bounded by the host count
+        # on the local segment.
+        self._arp_table: dict[str, str] = {}
+
+        # src_mac → SlidingWindow of gratuitous ARP events
+        self._gratuitous: dict[str, SlidingWindow] = {}
 
         self._thread: threading.Thread | None = None
         self._stop_event = threading.Event()
@@ -104,23 +109,23 @@ class ArpSpoofDetector:
         if arp_op != 2 or src_ip != dst_ip:
             return
 
-        log = self._gratuitous_log[src_mac]
-        log.append(now)
+        window = self._gratuitous.get(src_mac)
+        if window is None:
+            window = SlidingWindow(self._gratuitous_window_seconds)
+            self._gratuitous[src_mac] = window
 
-        while log and (now - log[0]) > self._gratuitous_window_seconds:
-            log.popleft()
-
-        if len(log) > self._gratuitous_threshold:
+        count = window.add(now)
+        if count > self._gratuitous_threshold:
             self._emit(
                 src_ip   = src_ip,
                 severity = "MEDIUM",
                 details  = {
                     "reason":  "gratuitous_arp_flood",
                     "src_mac": src_mac,
-                    "count":   len(log),
+                    "count":   count,
                 },
             )
-            log.clear()
+            window.clear()
 
     def _emit(self, src_ip: str, severity: str, details: dict) -> None:
         self._alerts.put(Alert(

@@ -1,6 +1,7 @@
 import time
 from typing import Optional
 
+from scapy.layers.dns import DNS, DNSQR
 from scapy.layers.inet import IP, TCP, UDP, ICMP
 from scapy.layers.l2 import Ether, ARP
 
@@ -22,7 +23,8 @@ class PacketParser:
         self._extract_ip(packet, result)
         self._extract_transport(packet, result)
         self._extract_arp(packet, result)
-        
+        self._extract_dns(packet, result)
+
         return result
 
     def _base(self, packet) -> dict:
@@ -41,6 +43,8 @@ class PacketParser:
             "seq":       None,
             "payload":   b"",
             "arp_op":    None,
+            "dns_qname": None,
+            "dns_qtype": None,
         }
 
     def _extract_ethernet(self, packet, result: dict) -> None:
@@ -76,6 +80,19 @@ class PacketParser:
 
         elif packet.haslayer(ICMP):
             result["protocol"] = "ICMP"
+
+    def _extract_dns(self, packet, result: dict) -> None:
+        if not packet.haslayer(DNS):
+            return
+        dns = packet[DNS]
+        # QR=0 means this is a Query (not a Response)
+        if dns.qr != 0 or not packet.haslayer(DNSQR):
+            return
+        qr = packet[DNSQR]
+        raw = qr.qname
+        if raw:
+            result["dns_qname"] = raw.decode("utf-8", errors="replace").rstrip(".")
+            result["dns_qtype"] = qr.qtype
 
     def _extract_arp(self, packet, result: dict) -> None:
         if not packet.haslayer(ARP):

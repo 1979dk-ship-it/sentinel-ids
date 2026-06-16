@@ -1,9 +1,10 @@
 import queue
 import threading
 import time
-from collections import defaultdict, deque
 
 from core.alerts.alert import Alert
+from core.utils.cooldown import CooldownTracker
+from core.utils.sliding_window import SlidingWindow
 
 _SSH_PORT   = 22
 _HTTP_PORT  = 80
@@ -44,13 +45,10 @@ class BruteForceDetector:
         self._http_window         = http_window_seconds
         self._https_threshold     = https_threshold
         self._https_window        = https_window_seconds
-        self._cooldown_seconds    = cooldown_seconds
 
-        # (src_ip, dst_ip, dst_port) → deque of event timestamps
-        self._window: dict[tuple, deque] = defaultdict(deque)
-
-        # (src_ip, dst_ip, dst_port) → timestamp of last alert
-        self._cooldown: dict[tuple, float] = {}
+        # (src_ip, dst_ip, dst_port) → SlidingWindow (one per active key)
+        self._windows:  dict[tuple, SlidingWindow] = {}
+        self._cooldown: CooldownTracker            = CooldownTracker(cooldown_seconds)
 
         self._thread: threading.Thread | None = None
         self._stop_event = threading.Event()
@@ -113,25 +111,24 @@ class BruteForceDetector:
         dst_port: int,
         now:      float,
         threshold: int,
-        window:   int,
+        window_seconds: int,
         service:  str,
     ) -> None:
         key = (src_ip, dst_ip, dst_port)
 
-        last_alert = self._cooldown.get(key, 0.0)
-        if now - last_alert < self._cooldown_seconds:
+        if self._cooldown.is_cooling(key, now):
             return
 
-        log = self._window[key]
-        log.append(now)
+        window = self._windows.get(key)
+        if window is None:
+            window = SlidingWindow(window_seconds)
+            self._windows[key] = window
 
-        while log and (now - log[0]) > window:
-            log.popleft()
-
-        if len(log) >= threshold:
-            self._emit(src_ip, dst_port, service, len(log))
-            self._cooldown[key] = now
-            log.clear()
+        count = window.add(now)
+        if count >= threshold:
+            self._emit(src_ip, dst_port, service, count)
+            self._cooldown.mark(key, now)
+            window.clear()
 
     def _emit(self, src_ip: str, dst_port: int, service: str, count: int) -> None:
         self._alerts.put(Alert(
