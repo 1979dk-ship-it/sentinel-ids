@@ -10,6 +10,7 @@ from core.capture.parser import PacketParser
 from core.capture.queue import PacketQueue
 from core.detectors.arp_spoof import ArpSpoofDetector
 from core.detectors.brute_force import BruteForceDetector
+from core.detectors.dns_anomaly import DnsAnomalyDetector
 from core.detectors.port_scan import PortScanDetector
 
 
@@ -109,6 +110,17 @@ def main() -> None:
         cooldown_seconds     = bf_cfg.get("cooldown_seconds", 60),
     )
 
+    dns_cfg      = config["detectors"]["dns_anomaly"]
+    dns_detector = DnsAnomalyDetector(
+        pkt_queue.subscribe(),
+        alert_queue,
+        query_threshold      = dns_cfg["query_threshold"],
+        query_window_seconds = dns_cfg["query_window_seconds"],
+        subdomain_max_length = dns_cfg["subdomain_max_length"],
+        entropy_threshold    = dns_cfg["entropy_threshold"],
+        cooldown_seconds     = dns_cfg["cooldown_seconds"],
+    )
+
     def _shutdown(sig, frame):
         """Ensures resources are freed correctly on SIGINT."""
         print("\n[*] Stopping capture...")
@@ -116,6 +128,7 @@ def main() -> None:
         ps_detector.stop()
         arp_detector.stop()
         bf_detector.stop()
+        dns_detector.stop()
         sys.exit(0)
 
     signal.signal(signal.SIGINT, _shutdown)
@@ -127,6 +140,7 @@ def main() -> None:
     ps_detector.start()
     arp_detector.start()
     bf_detector.start()
+    dns_detector.start()
 
     threading.Thread(target=_alert_loop, args=(alert_queue,), daemon=True).start()
     _log_loop(consumer)
