@@ -13,6 +13,8 @@ detectors:
     ratio_medium: 10
     ratio_high: 50
     window_seconds: 5
+    min_syn: 20
+    cooldown_seconds: 60
   arp_spoof:
     gratuitous_threshold: 3
     gratuitous_window_seconds: 60
