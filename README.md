@@ -104,7 +104,7 @@ sentinel/
 │
 ├── main.py                 # Entry point – starts the full system
 ├── requirements.txt        # Python dependencies
-└── DEMO.md                 # Step-by-step demo scenarios for interviews
+└── DEMO.md                 # Step-by-step demo scenarios
 ```
 
 ---
@@ -127,7 +127,7 @@ sentinel/
 ## Key Design Decisions
 
 **Why Scapy and not PyShark or a simpler library?**
-Scapy gives direct access to every byte of every packet. We parse IP headers, TCP flags, and DNS payloads ourselves. This means we fully understand what we're detecting, and can explain every field to an interviewer.
+Scapy gives direct access to every byte of every packet. We parse IP headers, TCP flags, and DNS payloads ourselves.
 
 **Why a fan-out queue?**
 The capture engine runs in one thread. Each of the 5 detectors runs in its own thread. A fan-out queue lets every detector see every packet in parallel without blocking each other. If a detector is slow, it drops packets from its own queue — the other detectors are unaffected.
@@ -177,8 +177,8 @@ python main.py
 | 3 | Terminal UI | ⬜ Pending |
 | 4 | ARP spoof detector | ✅ Done – v0.4.0 |
 | 5 | Database & logging | ⬜ Pending |
-| 6 | Brute force detector | ⬜ Pending |
-| 7 | DNS anomaly detector | ⬜ Pending |
+| 6 | Brute force detector | ✅ Done – v0.6.0 |
+| 7 | DNS anomaly detector | ✅ Done – v0.7.0 |
 | 8 | SYN flood detector | ⬜ Pending |
 | 9 | Web dashboard | ⬜ Pending |
 | 10 | Response engine | ⬜ Pending |
