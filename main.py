@@ -12,6 +12,7 @@ from core.detectors.arp_spoof import ArpSpoofDetector
 from core.detectors.brute_force import BruteForceDetector
 from core.detectors.dns_anomaly import DnsAnomalyDetector
 from core.detectors.port_scan import PortScanDetector
+from core.detectors.syn_flood import SynFloodDetector
 
 
 def _load_config(path: str = "config/config.yaml") -> dict:
@@ -121,6 +122,17 @@ def main() -> None:
         cooldown_seconds     = dns_cfg["cooldown_seconds"],
     )
 
+    syn_cfg      = config["detectors"]["syn_flood"]
+    syn_detector = SynFloodDetector(
+        pkt_queue.subscribe(),
+        alert_queue,
+        ratio_medium     = syn_cfg["ratio_medium"],
+        ratio_high       = syn_cfg["ratio_high"],
+        window_seconds   = syn_cfg["window_seconds"],
+        min_syn          = syn_cfg["min_syn"],
+        cooldown_seconds = syn_cfg["cooldown_seconds"],
+    )
+
     def _shutdown(sig, frame):
         """Ensures resources are freed correctly on SIGINT."""
         print("\n[*] Stopping capture...")
@@ -129,6 +141,7 @@ def main() -> None:
         arp_detector.stop()
         bf_detector.stop()
         dns_detector.stop()
+        syn_detector.stop()
         sys.exit(0)
 
     signal.signal(signal.SIGINT, _shutdown)
@@ -141,6 +154,7 @@ def main() -> None:
     arp_detector.start()
     bf_detector.start()
     dns_detector.start()
+    syn_detector.start()
 
     threading.Thread(target=_alert_loop, args=(alert_queue,), daemon=True).start()
     _log_loop(consumer)
