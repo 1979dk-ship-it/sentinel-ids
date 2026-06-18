@@ -70,14 +70,24 @@ class SynFloodDetector:
             self._thread.join(timeout=3)
 
     def _run(self) -> None:
+        last_eval = time.time()
         while not self._stop_event.is_set():
             try:
                 packet = self._packets.get(timeout=1)
-                self._process(packet)
+                self._record(packet)
             except queue.Empty:
-                continue
+                pass
 
-    def _process(self, packet: dict) -> None:
+            # Evaluate the ratio over the full window on a fixed cadence rather
+            # than on every SYN. Firing at the first floor crossing emitted a
+            # MEDIUM and cleared the window before the ratio could grow, so HIGH
+            # was unreachable. A periodic check sees the true rate per window.
+            now = time.time()
+            if now - last_eval >= self._window:
+                self._evaluate_all(now)
+                last_eval = now
+
+    def _record(self, packet: dict) -> None:
         if packet.get("protocol") != "TCP":
             return
 
@@ -91,21 +101,26 @@ class SynFloodDetector:
         # We only track pure SYN and pure ACK. Mixed flags (SA, PA, ...) are
         # noise for this ratio and are deliberately ignored.
         if flags == _SYN:
-            self._record(dst_ip, _SYN, now)
+            self._add(dst_ip, _SYN, now)
         elif flags == _ACK:
-            self._record(dst_ip, _ACK, now)
+            self._add(dst_ip, _ACK, now)
 
-    def _record(self, dst_ip: str, flag: str, now: float) -> None:
+    def _add(self, dst_ip: str, flag: str, now: float) -> None:
         window = self._windows.get(dst_ip)
         if window is None:
             window = SlidingWindow(self._window)
             self._windows[dst_ip] = window
-
         window.add(now, key=flag)
 
-        # Only a new SYN can push the ratio over the edge; no need to re-check
-        # the threshold when an ACK arrives (it can only lower the ratio).
-        if flag == _SYN:
+    def _evaluate_all(self, now: float) -> None:
+        # Iterate over a snapshot of keys – empty windows are dropped to keep
+        # memory bounded when targets stop receiving traffic.
+        for dst_ip in list(self._windows.keys()):
+            window = self._windows[dst_ip]
+            window.prune(now)
+            if window.is_empty():
+                del self._windows[dst_ip]
+                continue
             self._evaluate(dst_ip, window, now)
 
     def _evaluate(self, dst_ip: str, window: SlidingWindow, now: float) -> None:
@@ -128,7 +143,6 @@ class SynFloodDetector:
         if severity:
             self._emit(dst_ip, severity, syn, ack, ratio)
             self._cooldown.mark(dst_ip, now)
-            window.clear()
 
     def _emit(self, dst_ip: str, severity: str, syn: int, ack: int, ratio: float) -> None:
         self._alerts.put(Alert(

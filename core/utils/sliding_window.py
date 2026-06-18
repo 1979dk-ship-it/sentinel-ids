@@ -48,6 +48,10 @@ class SlidingWindow:
     def is_empty(self) -> bool:
         return not self._log
 
+    def prune(self, now: float) -> None:
+        """Expire events older than the window relative to `now`, without adding one."""
+        self._prune(now)
+
     def _prune(self, now: float) -> None:
         cutoff = now - self._window
         while self._log and self._log[0][0] < cutoff:
