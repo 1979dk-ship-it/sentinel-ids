@@ -179,7 +179,7 @@ python main.py
 | 5 | Database & logging | ⬜ Pending |
 | 6 | Brute force detector | ✅ Done – v0.6.0 |
 | 7 | DNS anomaly detector | ✅ Done – v0.7.0 |
-| 8 | SYN flood detector | ⬜ Pending |
+| 8 | SYN flood detector | ✅ Done – v0.8.0 |
 | 9 | Web dashboard | ⬜ Pending |
 | 10 | Response engine | ⬜ Pending |
 | 11 | Advanced features | ⬜ Pending |
