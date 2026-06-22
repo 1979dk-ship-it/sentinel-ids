@@ -74,7 +74,7 @@ class SynFloodDetector:
         while not self._stop_event.is_set():
             try:
                 packet = self._packets.get(timeout=1)
-                self._record(packet)
+                self._process(packet)
             except queue.Empty:
                 pass
 
@@ -87,7 +87,7 @@ class SynFloodDetector:
                 self._evaluate_all(now)
                 last_eval = now
 
-    def _record(self, packet: dict) -> None:
+    def _process(self, packet: dict) -> None:
         if packet.get("protocol") != "TCP":
             return
 
