@@ -13,6 +13,8 @@ from core.detectors.brute_force import BruteForceDetector
 from core.detectors.dns_anomaly import DnsAnomalyDetector
 from core.detectors.port_scan import PortScanDetector
 from core.detectors.syn_flood import SynFloodDetector
+from db.database import init_db
+from db.queries import save_alert
 
 
 def _load_config(path: str = "config/config.yaml") -> dict:
@@ -46,11 +48,12 @@ def _print_alert(a: Alert) -> None:
     print(f"{color}[ALERT] [{a.severity:<6}] {a.type:<12}  src={a.src_ip}  {a.details}{reset}")
 
 
-def _alert_loop(alert_queue: queue.Queue) -> None:
-    """Runs on a background thread – prints alerts as they arrive."""
+def _alert_loop(alert_queue: queue.Queue, session_factory) -> None:
+    """Runs on a background thread – persists and prints alerts as they arrive."""
     while True:
         try:
             alert = alert_queue.get(timeout=1)
+            save_alert(session_factory, alert)
             _print_alert(alert)
         except queue.Empty:
             continue
@@ -74,6 +77,10 @@ def main() -> None:
     interface = config["network"]["interface"]
     if interface == "auto":
         interface = None
+
+    # Persistence – build the DB and a session factory from config
+    db_path      = config["database"]["path"]
+    SessionLocal = init_db(db_path)
 
     # Dependency Injection & Pipeline Assembly
     parser      = PacketParser()
@@ -156,7 +163,7 @@ def main() -> None:
     dns_detector.start()
     syn_detector.start()
 
-    threading.Thread(target=_alert_loop, args=(alert_queue,), daemon=True).start()
+    threading.Thread(target=_alert_loop, args=(alert_queue, SessionLocal), daemon=True).start()
     _log_loop(consumer)
 
 
