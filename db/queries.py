@@ -3,6 +3,10 @@
 Keeping these here (instead of inline in main.py) means the persistence
 logic has one home and main.py stays a thin assembly layer.
 """
+import time
+
+from sqlalchemy import select
+
 from core.alerts.alert import Alert
 from db.models import AlertRecord
 
@@ -23,3 +27,22 @@ def save_alert(session_factory, alert: Alert) -> None:
         )
         session.add(record)
         session.commit()
+
+
+def alerts_since(session_factory, seconds: int = 3600, now: float | None = None) -> list[AlertRecord]:
+    """Returns alerts from the last `seconds` (default: the past hour), newest first.
+
+    `now` is injectable so the query can be tested against a fixed clock
+    instead of depending on the real wall-clock time. The timestamp filter
+    rides the index on AlertRecord.timestamp.
+    """
+    if now is None:
+        now = time.time()
+    cutoff = now - seconds
+    with session_factory() as session:
+        stmt = (
+            select(AlertRecord)
+            .where(AlertRecord.timestamp >= cutoff)
+            .order_by(AlertRecord.timestamp.desc())
+        )
+        return list(session.scalars(stmt).all())
