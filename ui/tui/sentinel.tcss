@@ -1,0 +1,56 @@
+Screen {
+    background: #0a0a0a;
+    color: #e0e0e0;
+    layout: vertical;
+}
+
+Header {
+    background: #1a1a2e;
+    color: #e94560;
+    text-style: bold;
+}
+
+StatsBar {
+    height: 1;
+    background: #16213e;
+    padding: 0 2;
+}
+
+StatsBar Static {
+    width: 1fr;
+    content-align: center middle;
+    color: #a0a0c0;
+}
+
+#stat-title {
+    color: #e94560;
+    text-style: bold;
+}
+
+#main-panel {
+    height: 1fr;
+}
+
+PacketLog {
+    width: 2fr;
+    border: solid #1a3a5c;
+    border-title-color: #4a9eff;
+    border-title-style: bold;
+}
+
+AlertPanel {
+    width: 1fr;
+    border: solid #5c1a1a;
+    border-title-color: #e94560;
+    border-title-style: bold;
+}
+
+RichLog {
+    background: #0a0a0a;
+    padding: 0 1;
+}
+
+Footer {
+    background: #1a1a2e;
+    color: #a0a0c0;
+}
