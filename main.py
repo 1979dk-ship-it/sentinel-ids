@@ -1,6 +1,5 @@
 import queue
 import signal
-import sys
 import threading
 import yaml
 
@@ -15,6 +14,7 @@ from core.detectors.port_scan import PortScanDetector
 from core.detectors.syn_flood import SynFloodDetector
 from db.database import init_db
 from db.queries import save_alert
+from ui.tui.app import SentinelApp
 
 
 def _load_config(path: str = "config/config.yaml") -> dict:
@@ -23,51 +23,13 @@ def _load_config(path: str = "config/config.yaml") -> dict:
         return yaml.safe_load(f)
 
 
-def _print_packet(p: dict) -> None:
-    """Formats packet dictionary fields into a standardized stdout string."""
-    proto = p.get("protocol") or "OTHER"
-    src   = p.get("src_ip")  or p.get("src_mac") or "?"
-    dst   = p.get("dst_ip")  or p.get("dst_mac") or "?"
-    size  = p.get("size", 0)
-
-    line = f"[{proto:<5}] {src:<18} → {dst:<18}  {size}b"
-
-    if p.get("src_port"):
-        line += f"  {p['src_port']} → {p['dst_port']}"
-    if p.get("flags"):
-        line += f"  flags:{p['flags']}"
-
-    print(line)
-
-
-def _print_alert(a: Alert) -> None:
-    """Formats an Alert into a colored stdout line."""
-    colors = {"HIGH": "\033[91m", "MEDIUM": "\033[93m", "LOW": "\033[92m"}
-    reset  = "\033[0m"
-    color  = colors.get(a.severity, "")
-    print(f"{color}[ALERT] [{a.severity:<6}] {a.type:<12}  src={a.src_ip}  {a.details}{reset}")
-
-
-def _alert_loop(alert_queue: queue.Queue, session_factory) -> None:
-    """Runs on a background thread – persists and prints alerts as they arrive."""
+def _alert_loop(alert_queue: queue.Queue, session_factory, app: SentinelApp) -> None:
+    """Persists alerts to DB and pushes them to the TUI via call_from_thread."""
     while True:
         try:
             alert = alert_queue.get(timeout=1)
             save_alert(session_factory, alert)
-            _print_alert(alert)
-        except queue.Empty:
-            continue
-
-
-def _log_loop(consumer: queue.Queue) -> None:
-    """
-    Main execution loop. Consumes events from the packet queue
-    and handles output until interrupted.
-    """
-    while True:
-        try:
-            packet = consumer.get(timeout=1)
-            _print_packet(packet)
+            app.call_from_thread(app.push_alert, alert)
         except queue.Empty:
             continue
 
@@ -140,21 +102,18 @@ def main() -> None:
         cooldown_seconds = syn_cfg["cooldown_seconds"],
     )
 
+    app = SentinelApp(packet_queue=consumer, session_factory=SessionLocal)
+
     def _shutdown(sig, frame):
-        """Ensures resources are freed correctly on SIGINT."""
-        print("\n[*] Stopping capture...")
         capture.stop()
         ps_detector.stop()
         arp_detector.stop()
         bf_detector.stop()
         dns_detector.stop()
         syn_detector.stop()
-        sys.exit(0)
+        app.exit()
 
     signal.signal(signal.SIGINT, _shutdown)
-
-    print(f"[*] SENTINEL IDS – starting on interface: {interface or 'default'}")
-    print("[*] Press Ctrl+C to stop\n")
 
     capture.start()
     ps_detector.start()
@@ -163,8 +122,13 @@ def main() -> None:
     dns_detector.start()
     syn_detector.start()
 
-    threading.Thread(target=_alert_loop, args=(alert_queue, SessionLocal), daemon=True).start()
-    _log_loop(consumer)
+    threading.Thread(
+        target=_alert_loop,
+        args=(alert_queue, SessionLocal, app),
+        daemon=True,
+    ).start()
+
+    app.run()
 
 
 if __name__ == "__main__":
