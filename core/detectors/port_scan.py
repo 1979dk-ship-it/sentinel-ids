@@ -3,6 +3,7 @@ import threading
 import time
 
 from core.alerts.alert import Alert
+from core.utils.cooldown import CooldownTracker
 from core.utils.sliding_window import SlidingWindow
 
 
@@ -26,10 +27,11 @@ class PortScanDetector:
 
     def __init__(
         self,
-        packet_queue:    queue.Queue,
-        alert_queue:     queue.Queue,
-        threshold_ports: int = 15,
-        window_seconds:  int = 5,
+        packet_queue:     queue.Queue,
+        alert_queue:      queue.Queue,
+        threshold_ports:  int = 15,
+        window_seconds:   int = 5,
+        cooldown_seconds: int = 60,
     ):
         self._packets         = packet_queue
         self._alerts          = alert_queue
@@ -38,6 +40,10 @@ class PortScanDetector:
 
         # src_ip → SlidingWindow keyed by dst_port
         self._windows: dict[str, SlidingWindow] = {}
+
+        # (src_ip, scan_type) → last alert time. Keying on scan_type too means a
+        # NULL scan and a SYN scan from the same host don't silence each other.
+        self._cooldown: CooldownTracker = CooldownTracker(cooldown_seconds)
 
         self._thread: threading.Thread | None = None
         self._stop_event = threading.Event()
@@ -77,13 +83,13 @@ class PortScanDetector:
         # stealth scan detection – flag-based, no window needed
         if flags is not None and packet.get("protocol") == "TCP":
             if flags == _NULL_FLAGS:
-                self._emit(src_ip, "LOW", {"scan_type": "NULL"})
+                self._emit(src_ip, "LOW", {"scan_type": "NULL"}, now)
                 return
             if flags == _FIN_FLAGS:
-                self._emit(src_ip, "LOW", {"scan_type": "FIN"})
+                self._emit(src_ip, "LOW", {"scan_type": "FIN"}, now)
                 return
             if flags == _XMAS_FLAGS:
-                self._emit(src_ip, "LOW", {"scan_type": "XMAS"})
+                self._emit(src_ip, "LOW", {"scan_type": "XMAS"}, now)
                 return
 
         # sliding window – only track packets with a destination port
@@ -98,22 +104,36 @@ class PortScanDetector:
         window.add(now, dst_port)
 
         if window.distinct() > self._threshold_ports:
-            self._emit(src_ip, "HIGH", {
+            fired = self._emit(src_ip, "HIGH", {
                 "scan_type":   "SYN",
                 "port_count":  window.distinct(),
                 "ports":       sorted(window.keys()),
-            })
-            window.clear()   # reset so we don't re-alert on same burst
+            }, now)
+            # Reset only once we actually alerted. While the source is cooling
+            # down we keep the window so the scan is re-reported the moment the
+            # cooldown lapses, instead of silently restarting the count.
+            if fired:
+                window.clear()
 
-    def _emit(self, src_ip: str, severity: str, details: dict) -> None:
-        """Push an Alert onto the alert queue."""
+    def _emit(self, src_ip: str, severity: str, details: dict, now: float) -> bool:
+        """Queue an Alert unless this (src_ip, scan_type) is still cooling down.
+
+        Returns True if an alert was emitted, False if suppressed – the caller
+        uses the result to decide whether to reset its sliding window.
+        """
         if not src_ip:
-            return
-        alert = Alert(
+            return False
+
+        key = (src_ip, details.get("scan_type"))
+        if self._cooldown.is_cooling(key, now):
+            return False
+
+        self._alerts.put(Alert(
             type      = "PORT_SCAN",
             severity  = severity,
             src_ip    = src_ip,
             timestamp = time.time(),
             details   = details,
-        )
-        self._alerts.put(alert)
+        ))
+        self._cooldown.mark(key, now)
+        return True
