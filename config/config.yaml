@@ -2,6 +2,7 @@ detectors:
   port_scan:
     threshold_ports: 15
     window_seconds: 5
+    cooldown_seconds: 60
   brute_force:
     ssh_threshold: 5
     ssh_window_seconds: 30
