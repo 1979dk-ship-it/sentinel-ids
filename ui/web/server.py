@@ -8,28 +8,93 @@ This file is the application factory. The actual server launch lives in
 __main__.py, so create_app() stays importable (e.g. for tests) without the
 side effect of binding a port.
 """
+import asyncio
 from pathlib import Path
+from typing import Any
 
-from fastapi import FastAPI
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
+
+from db.database import init_db
+from db.models import AlertRecord
+from db.queries import alerts_since
 
 STATIC_DIR = Path(__file__).parent / "static"
 
 
-def create_app() -> FastAPI:
-    """Builds the FastAPI application.
+class ConnectionManager:
+    """Keeps the set of open WebSocket connections.
 
-    For now it only serves the static dashboard page. The WebSocket endpoint
-    and the database broadcaster are added in the next step.
+    Each browser tab on the dashboard is one live connection. Holding them in
+    a set lets us push a new alert to every tab at once (broadcast).
     """
-    app = FastAPI(title="SENTINEL IDS Dashboard")
 
+    def __init__(self) -> None:
+        self._connections: set[WebSocket] = set()
+
+    async def connect(self, websocket: WebSocket) -> None:
+        """Accepts the handshake and registers the connection."""
+        await websocket.accept()
+        self._connections.add(websocket)
+
+    def disconnect(self, websocket: WebSocket) -> None:
+        """Drops a connection that has closed."""
+        self._connections.discard(websocket)
+
+    async def broadcast(self, message: dict[str, Any]) -> None:
+        """Sends one message to every open connection (used by the broadcaster)."""
+        for websocket in list(self._connections):
+            await websocket.send_json(message)
+
+
+def _alert_to_message(record: AlertRecord) -> dict[str, Any]:
+    """Turns a stored alert row into a JSON-serialisable dict for the wire."""
+    return {
+        "id":        record.id,
+        "timestamp": record.timestamp,
+        "type":      record.type,
+        "severity":  record.severity,
+        "src_ip":    record.src_ip,
+        "details":   record.details,
+    }
+
+
+def create_app(config: dict) -> FastAPI:
+    """Builds the FastAPI application from runtime config."""
+    history_seconds = config["web"]["alert_history_seconds"]
+    session_factory = init_db(config["database"]["path"])
+    manager = ConnectionManager()
+
+    app = FastAPI(title="SENTINEL IDS Dashboard")
     app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 
     @app.get("/")
     def index() -> FileResponse:
         """Serves the dashboard page."""
         return FileResponse(STATIC_DIR / "index.html")
+
+    @app.websocket("/ws")
+    async def alert_stream(websocket: WebSocket) -> None:
+        """Streams alerts to one browser tab.
+
+        On connect we replay the recent alert history so the page is not empty.
+        Then we park on receive() with one purpose: to notice when the tab
+        closes, so we can drop it from the manager.
+        """
+        await manager.connect(websocket)
+
+        # alerts_since() is synchronous SQLAlchemy. Running it directly here
+        # would block the single event loop and freeze every other connection,
+        # so we hand it to a worker thread and await the result instead.
+        history = await asyncio.to_thread(alerts_since, session_factory, history_seconds)
+        for record in reversed(history):  # newest-first from the DB -> send oldest-first
+            await websocket.send_json(_alert_to_message(record))
+
+        try:
+            while True:
+                await websocket.receive_text()  # we expect nothing; this raises on disconnect
+        except WebSocketDisconnect:
+            manager.disconnect(websocket)
 
     return app

@@ -19,7 +19,7 @@ def _load_config(path: str = "config/config.yaml") -> dict:
 def main() -> None:
     config = _load_config()
     web = config["web"]
-    app = create_app()
+    app = create_app(config)
     uvicorn.run(app, host=web["host"], port=web["port"])
 
 
