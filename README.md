@@ -185,3 +185,5 @@ python main.py
 | 13 | Portfolio polish | ⬜ Pending |
 
 > 🟡 **Phase 5 is partial:** the `alerts` table is live (write + read). The `packets`, `blocked_ips`, and `baselines` tables, retention cleanup, and built-in stat queries are deferred to later phases — the Web Dashboard and Response Engine will pull them in when they need them. This was a deliberate choice: build the persistence layer incrementally around what each consumer actually needs, rather than create empty tables up front.
+
+> 📌 **Build order vs. phase numbers:** the table follows the *plan's* phase numbers, not the order the work actually happened. The detection engine was the priority, so all five detectors (Phases 4, 6, 7, 8) were built and validated first — before the terminal UI (Phase 3) and the persistence layer (Phase 5), which came last. This is why the Git tags are not chronological: the newest commit is tagged `v0.3.0`, while `v0.8.0` sits earlier in history. Each tag is numbered after its **plan phase**, not its release date.
