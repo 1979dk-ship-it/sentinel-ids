@@ -9,6 +9,7 @@ __main__.py, so create_app() stays importable (e.g. for tests) without the
 side effect of binding a port.
 """
 import asyncio
+import contextlib
 from pathlib import Path
 from typing import Any
 
@@ -43,9 +44,18 @@ class ConnectionManager:
         self._connections.discard(websocket)
 
     async def broadcast(self, message: dict[str, Any]) -> None:
-        """Sends one message to every open connection (used by the broadcaster)."""
+        """Sends one message to every open connection, dropping any that have died.
+
+        We iterate over a copy (list(...)) so disconnect() can mutate the set
+        mid-loop. A send to a socket the browser already closed raises; we
+        swallow it and drop that socket, so one dead tab can't stop the rest
+        from receiving the alert.
+        """
         for websocket in list(self._connections):
-            await websocket.send_json(message)
+            try:
+                await websocket.send_json(message)
+            except Exception:
+                self.disconnect(websocket)
 
 
 def _alert_to_message(record: AlertRecord) -> dict[str, Any]:
@@ -63,10 +73,42 @@ def _alert_to_message(record: AlertRecord) -> dict[str, Any]:
 def create_app(config: dict) -> FastAPI:
     """Builds the FastAPI application from runtime config."""
     history_seconds = config["web"]["alert_history_seconds"]
+    poll_seconds = config["web"]["poll_seconds"]
     session_factory = init_db(config["database"]["path"])
     manager = ConnectionManager()
 
-    app = FastAPI(title="SENTINEL IDS Dashboard")
+    @contextlib.asynccontextmanager
+    async def lifespan(app: FastAPI):
+        """Runs the live-push broadcaster for the whole life of the server.
+
+        Code before `yield` is startup; code after is shutdown. We seed
+        last_id to the newest alert already in the DB so the broadcaster only
+        pushes alerts that arrive *after* boot — the /ws handler is what
+        replays old history to a tab on connect, not this loop.
+        """
+        seed = await asyncio.to_thread(alerts_since, session_factory, history_seconds)
+        last_id = max((record.id for record in seed), default=0)
+
+        async def broadcaster() -> None:
+            """Polls the DB every poll_seconds and pushes any new alerts."""
+            nonlocal last_id
+            while True:
+                await asyncio.sleep(poll_seconds)
+                records = await asyncio.to_thread(alerts_since, session_factory, history_seconds)
+                for record in reversed(records):  # newest-first from DB -> push oldest-first
+                    if record.id > last_id:
+                        await manager.broadcast(_alert_to_message(record))
+                        last_id = record.id
+
+        task = asyncio.create_task(broadcaster())
+        try:
+            yield
+        finally:
+            task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await task
+
+    app = FastAPI(title="SENTINEL IDS Dashboard", lifespan=lifespan)
     app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 
     @app.get("/")
