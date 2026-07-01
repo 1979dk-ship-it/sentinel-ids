@@ -18,14 +18,18 @@ class SentinelApp(App):
         ("q", "quit",          "Quit"),
         ("p", "toggle_pause",  "Pause log"),
         ("f", "toggle_filter", "Filter"),
+        ("b", "block_last",    "Block IP"),
+        ("u", "unblock_last",  "Unblock IP"),
     ]
 
-    def __init__(self, packet_queue: queue.Queue, session_factory):
+    def __init__(self, packet_queue: queue.Queue, session_factory, response_engine):
         super().__init__()
-        self._packet_queue   = packet_queue
+        self._packet_queue    = packet_queue
         self._session_factory = session_factory
-        self._packet_count   = 0
-        self._alert_count    = 0
+        self._response_engine = response_engine
+        self._packet_count    = 0
+        self._alert_count     = 0
+        self._last_alert: Alert | None = None   # the IP that 'b' will act on
 
     def compose(self) -> ComposeResult:
         yield Header()
@@ -58,6 +62,7 @@ class SentinelApp(App):
     def push_alert(self, alert: Alert) -> None:
         # Called via app.call_from_thread() from the alert_loop thread.
         self._alert_count += 1
+        self._last_alert = alert   # remember it so 'b' knows which IP to block
         self.query_one(AlertPanel).add_alert(alert)
         self.query_one(StatsBar).update_alerts(self._alert_count)
 
@@ -66,6 +71,24 @@ class SentinelApp(App):
 
     def action_toggle_filter(self) -> None:
         self.query_one(PacketLog).toggle_filter()
+
+    def action_block_last(self) -> None:
+        """Block the source IP of the most recent alert (with confirmation via
+        the result message). The ResponseEngine enforces every safety check."""
+        if self._last_alert is None:
+            self.notify("No alert to block yet", severity="warning")
+            return
+        alert  = self._last_alert
+        result = self._response_engine.block(alert.src_ip, reason=alert.type, blocked_by="tui")
+        self.notify(result.message, severity="information" if result.ok else "warning")
+
+    def action_unblock_last(self) -> None:
+        """Lift the block on the most recent alert's source IP."""
+        if self._last_alert is None:
+            self.notify("No alert to unblock yet", severity="warning")
+            return
+        result = self._response_engine.unblock(self._last_alert.src_ip)
+        self.notify(result.message, severity="information" if result.ok else "warning")
 
     def action_quit(self) -> None:
         self.exit()
