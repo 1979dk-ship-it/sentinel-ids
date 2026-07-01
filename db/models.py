@@ -22,3 +22,18 @@ class AlertRecord(Base):
     severity:  Mapped[str]            = mapped_column(String)
     src_ip:    Mapped[str]            = mapped_column(String, index=True)
     details:   Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
+
+
+class BlockedIp(Base):
+    """One block action. A row whose unblocked_at IS NULL is blocked right now;
+    once it is unblocked we stamp the time instead of deleting the row, so the
+    table doubles as an audit log of every block/unblock that ever happened.
+    """
+    __tablename__ = "blocked_ips"
+
+    id:           Mapped[int]          = mapped_column(primary_key=True)
+    ip:           Mapped[str]          = mapped_column(String, index=True)
+    blocked_at:   Mapped[float]        = mapped_column(Float)
+    reason:       Mapped[str]          = mapped_column(String)
+    blocked_by:   Mapped[str]          = mapped_column(String)
+    unblocked_at: Mapped[float | None] = mapped_column(Float, nullable=True, default=None)
