@@ -36,3 +36,9 @@ database:
 
 network:
   interface: auto
+
+web:
+  host: 127.0.0.1
+  port: 8888
+  poll_seconds: 1
+  alert_history_seconds: 3600
