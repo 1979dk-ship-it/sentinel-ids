@@ -8,7 +8,7 @@ import time
 from sqlalchemy import select
 
 from core.alerts.alert import Alert
-from db.models import AlertRecord
+from db.models import AlertRecord, BlockedIp
 
 
 def save_alert(session_factory, alert: Alert) -> None:
@@ -44,5 +44,55 @@ def alerts_since(session_factory, seconds: int = 3600, now: float | None = None)
             select(AlertRecord)
             .where(AlertRecord.timestamp >= cutoff)
             .order_by(AlertRecord.timestamp.desc())
+        )
+        return list(session.scalars(stmt).all())
+
+
+def record_block(session_factory, ip: str, reason: str, blocked_by: str,
+                 now: float | None = None) -> None:
+    """Persist a block action as a new row in blocked_ips."""
+    if now is None:
+        now = time.time()
+    with session_factory() as session:
+        session.add(BlockedIp(ip=ip, blocked_at=now, reason=reason, blocked_by=blocked_by))
+        session.commit()
+
+
+def record_unblock(session_factory, ip: str, now: float | None = None) -> bool:
+    """Stamp the active block for `ip` as lifted. Returns True if one was active.
+
+    We match only the row with unblocked_at still NULL – the currently-active
+    block – so an old, already-lifted entry for the same IP is left untouched.
+    """
+    if now is None:
+        now = time.time()
+    with session_factory() as session:
+        stmt = select(BlockedIp).where(
+            BlockedIp.ip == ip, BlockedIp.unblocked_at.is_(None)
+        )
+        record = session.scalars(stmt).first()
+        if record is None:
+            return False
+        record.unblocked_at = now
+        session.commit()
+        return True
+
+
+def is_blocked(session_factory, ip: str) -> bool:
+    """True if `ip` has an active block (a row with unblocked_at still NULL)."""
+    with session_factory() as session:
+        stmt = select(BlockedIp).where(
+            BlockedIp.ip == ip, BlockedIp.unblocked_at.is_(None)
+        )
+        return session.scalars(stmt).first() is not None
+
+
+def active_blocks(session_factory) -> list[BlockedIp]:
+    """Every currently-blocked IP (unblocked_at NULL), newest block first."""
+    with session_factory() as session:
+        stmt = (
+            select(BlockedIp)
+            .where(BlockedIp.unblocked_at.is_(None))
+            .order_by(BlockedIp.blocked_at.desc())
         )
         return list(session.scalars(stmt).all())
