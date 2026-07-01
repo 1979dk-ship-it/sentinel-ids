@@ -55,8 +55,9 @@ def main() -> None:
     ps_detector = PortScanDetector(
         pkt_queue.subscribe(),
         alert_queue,
-        threshold_ports = ps_cfg["threshold_ports"],
-        window_seconds  = ps_cfg["window_seconds"],
+        threshold_ports  = ps_cfg["threshold_ports"],
+        window_seconds   = ps_cfg["window_seconds"],
+        cooldown_seconds = ps_cfg["cooldown_seconds"],
     )
 
     arp_cfg      = config["detectors"]["arp_spoof"]

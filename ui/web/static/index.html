@@ -1,0 +1,45 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SENTINEL IDS — Dashboard</title>
+
+    <!-- JetBrains Mono, the same font the TUI uses. Falls back to the system
+         monospace face if there is no internet (see dashboard.css). -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;700&display=swap" rel="stylesheet">
+
+    <link rel="stylesheet" href="/static/dashboard.css">
+
+    <!-- Chart.js must be defined before dashboard.js runs. `defer` makes both
+         execute only after the DOM is parsed, and in document order — so the
+         chart library is ready, and our script never reads a null element. -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4" defer></script>
+    <script src="/static/dashboard.js" defer></script>
+</head>
+<body>
+    <header class="topbar">
+        <h1>SENTINEL<span class="accent">_IDS</span></h1>
+        <div class="status">
+            <span id="connection-status" class="offline">CONNECTING…</span>
+            <span class="metric">ALERTS: <span id="alert-count">0</span></span>
+        </div>
+    </header>
+
+    <main class="layout">
+        <!-- Live feed: dashboard.js prepends one <li> per incoming alert. -->
+        <section class="panel alerts-panel">
+            <h2>LIVE ALERTS</h2>
+            <ul id="alert-list" class="alert-list"></ul>
+        </section>
+
+        <!-- Count-by-type bar chart, drawn and updated by Chart.js. -->
+        <section class="panel chart-panel">
+            <h2>ALERTS BY TYPE</h2>
+            <canvas id="type-chart"></canvas>
+        </section>
+    </main>
+</body>
+</html>

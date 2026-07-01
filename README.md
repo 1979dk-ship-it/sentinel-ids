@@ -6,7 +6,7 @@ A real-time network intrusion detection system (IDS) that runs on Windows, liste
 
 ## What It Does
 
-SENTINEL captures every packet that travels through the network and analyzes it in real time. When it detects suspicious behavior, it raises an alert with the attacker's IP, the attack type, and a severity score. The user can then choose to block the attacker with a single keystroke.
+SENTINEL captures every packet that travels through the network and analyzes it in real time. When it detects suspicious behavior, it raises an alert with the attacker's IP, the attack type, and a severity level (HIGH / MEDIUM / LOW). Once the response engine lands (Phase 10), the user will be able to block the attacker with a single keystroke.
 
 **The 5 attacks SENTINEL detects:**
 
@@ -49,62 +49,61 @@ Each component has one responsibility and does not know about the others. The ca
 ## Folder Structure
 
 ```
-sentinel/
-├── core/                   # All network and security logic
-│   ├── capture/            # Packet ingestion pipeline
-│   │   ├── engine.py       # Listens to network interface or reads PCAP file
-│   │   ├── parser.py       # Breaks raw Scapy packet into clean fields
-│   │   └── queue.py        # Fan-out queue – sends each packet to all detectors
-│   ├── detectors/          # One file per attack type
+sentinel/                        # (planned) = scaffolded for a later phase, not built yet
+├── core/                        # All network and security logic
+│   ├── capture/                 # Packet ingestion pipeline
+│   │   ├── engine.py            # Listens to network interface or reads PCAP file
+│   │   ├── parser.py            # Breaks raw Scapy packet into clean, flat fields
+│   │   └── queue.py             # Fan-out queue – sends each packet to all detectors
+│   ├── detectors/               # One file per attack type
 │   │   ├── port_scan.py
 │   │   ├── arp_spoof.py
 │   │   ├── brute_force.py
 │   │   ├── dns_anomaly.py
 │   │   └── syn_flood.py
-│   ├── alerts/             # Alert lifecycle management
-│   │   ├── manager.py      # Receives alerts, deduplicates, scores severity
-│   │   └── scoring.py      # Threat scoring engine (0–100)
-│   └── response/           # Automated and manual response actions
-│       ├── engine.py       # Waits for user confirmation before acting
-│       └── firewall.py     # Adds/removes Windows Firewall rules via netsh
+│   ├── utils/                   # Shared detection primitives
+│   │   ├── sliding_window.py    # Time-bounded O(1) event counter
+│   │   └── cooldown.py          # Per-key alert suppression (anti-storm)
+│   ├── alerts/                  # Alert data + lifecycle
+│   │   ├── alert.py             # The Alert dataclass passed on the queue
+│   │   ├── manager.py           # (planned) Dedup + lifecycle management
+│   │   └── scoring.py           # (planned) Threat scoring engine (0–100)
+│   └── response/                # (planned) Automated and manual response actions
+│       ├── engine.py            # (planned) Waits for user confirmation before acting
+│       └── firewall.py          # (planned) Adds/removes Windows Firewall rules via netsh
 │
-├── db/                     # Data persistence layer
-│   ├── models.py           # SQLAlchemy table definitions
-│   └── queries.py          # Reusable queries (top IPs, alerts per hour, etc.)
+├── db/                          # Data persistence layer
+│   ├── database.py              # SQLAlchemy engine + Base + init_db()
+│   ├── models.py                # Table definitions – alerts (more tables planned)
+│   └── queries.py               # save_alert + alerts_since (stat queries planned)
 │
 ├── ui/
-│   ├── tui/                # Terminal UI (Textual framework)
-│   │   ├── app.py          # Main Textual application
-│   │   └── widgets/        # Custom panels: packet log, alert feed, stats bar
-│   └── web/                # Web dashboard (FastAPI + WebSocket)
-│       ├── app.py          # FastAPI routes and WebSocket endpoint
-│       └── static/         # HTML, CSS, Chart.js frontend
+│   ├── tui/                     # Terminal UI (Textual framework)
+│   │   ├── app.py               # Main Textual application + queue bridge
+│   │   ├── sentinel.tcss        # Dark tactical stylesheet
+│   │   └── widgets/             # stats_bar.py, packet_log.py, alert_panel.py
+│   └── web/                     # (planned) Web dashboard (FastAPI + WebSocket)
+│       ├── app.py               # (planned) FastAPI routes and WebSocket endpoint
+│       └── static/              # (planned) HTML, CSS, Chart.js frontend
 │
 ├── config/
-│   └── config.yaml         # All tunable thresholds – no hardcoded values in code
+│   └── config.yaml              # All tunable thresholds – no hardcoded values in code
 │
-├── tests/                  # Automated tests
-│   ├── test_queue.py
-│   ├── test_parser.py
-│   └── test_detectors/
+├── scripts/                     # Attack simulation scripts (Scapy loopback, no VMs)
+│   ├── sim_port_scan.py
+│   ├── sim_arp_spoof.py
+│   ├── sim_brute_force.py
+│   ├── sim_dns_tunnel.py
+│   └── sim_syn_flood.py
 │
-├── docs/
-│   ├── adr/                # Architecture Decision Records – why each tool was chosen
-│   ├── THREAT_MODEL.md     # What SENTINEL protects against and what it doesn't
-│   └── BENCHMARKS.md       # Packets/sec performance on target hardware
+├── pcap_samples/                # Pre-recorded attack traffic for offline replay
 │
-├── scripts/                # Attack simulation scripts (run from Kali VM or localhost)
-│   ├── attack_port_scan.sh
-│   ├── attack_arp_spoof.sh
-│   ├── attack_brute_force.sh
-│   ├── attack_dns_tunnel.sh
-│   └── attack_syn_flood.sh
+├── tests/                       # (planned) Automated tests – queue, parser, detectors
+├── docs/                        # (planned) ADRs, THREAT_MODEL.md, BENCHMARKS.md
 │
-├── pcap_samples/           # Pre-recorded attack traffic for offline testing
-│
-├── main.py                 # Entry point – starts the full system
-├── requirements.txt        # Python dependencies
-└── DEMO.md                 # Step-by-step demo scenarios
+├── main.py                      # Entry point – starts the full system
+├── requirements.txt             # Python dependencies
+└── DEMO.md                      # (planned) Step-by-step demo scenarios
 ```
 
 ---
@@ -147,9 +146,8 @@ Running three virtual machines (Kali, Ubuntu, Windows) simultaneously is too res
 
 | Stage | Method |
 |-------|--------|
-| Development | Replay pre-recorded PCAP files with real attack traffic |
-| Integration | Single lightweight Docker container as a target |
-| Demo | Full live detection against simulated attacks |
+| Development | Replay pre-recorded PCAP files with `rdpcap()` – exact repeatability for debugging |
+| Demo & live | Scapy loopback scripts (`scripts/sim_*.py`) craft and send fake attack packets over the local interface – no VMs required |
 
 ---
 
@@ -174,9 +172,9 @@ python main.py
 | 0 | Environment setup, project scaffold | ✅ Done – v0.0.1 |
 | 1 | Packet capture engine | ✅ Done – v0.1.0 |
 | 2 | Port scan detector | ✅ Done – v0.2.0 |
-| 3 | Terminal UI | ⬜ Pending |
+| 3 | Terminal UI | ✅ Done – v0.3.0 |
 | 4 | ARP spoof detector | ✅ Done – v0.4.0 |
-| 5 | Database & logging | ⬜ Pending |
+| 5 | Database & logging | 🟡 Partial – v0.5.0 |
 | 6 | Brute force detector | ✅ Done – v0.6.0 |
 | 7 | DNS anomaly detector | ✅ Done – v0.7.0 |
 | 8 | SYN flood detector | ✅ Done – v0.8.0 |
@@ -185,3 +183,7 @@ python main.py
 | 11 | Advanced features | ⬜ Pending |
 | 12 | Demo scenarios | ⬜ Pending |
 | 13 | Portfolio polish | ⬜ Pending |
+
+> 🟡 **Phase 5 is partial:** the `alerts` table is live (write + read). The `packets`, `blocked_ips`, and `baselines` tables, retention cleanup, and built-in stat queries are deferred to later phases — the Web Dashboard and Response Engine will pull them in when they need them. This was a deliberate choice: build the persistence layer incrementally around what each consumer actually needs, rather than create empty tables up front.
+
+> 📌 **Build order vs. phase numbers:** the table follows the *plan's* phase numbers, not the order the work actually happened. The detection engine was the priority, so all five detectors (Phases 4, 6, 7, 8) were built and validated first — before the terminal UI (Phase 3) and the persistence layer (Phase 5), which came last. This is why the Git tags are not chronological: the newest commit is tagged `v0.3.0`, while `v0.8.0` sits earlier in history. Each tag is numbered after its **plan phase**, not its release date.

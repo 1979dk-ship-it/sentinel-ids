@@ -1,0 +1,132 @@
+/* SENTINEL IDS dashboard styling.
+   Dark tactical theme, JetBrains Mono, severity-coded alert colours.
+   Every colour lives in one place (:root) so a theme tweak is a single edit. */
+
+:root {
+    --bg:        #0a0e14;
+    --panel-bg:  #11161f;
+    --border:    #1f2630;
+    --text:      #c5ccd6;
+    --text-dim:  #6b7682;
+    --accent:    #00d4aa;
+
+    /* severity -> colour. dashboard.js stamps data-severity on each alert. */
+    --high:   #ff3b3b;
+    --medium: #ffb020;
+    --low:    #36d399;
+}
+
+* {
+    box-sizing: border-box;
+    margin: 0;
+    padding: 0;
+}
+
+body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'JetBrains Mono', 'Courier New', monospace;
+    font-size: 14px;
+    height: 100vh;
+    display: flex;
+    flex-direction: column;
+}
+
+.topbar {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 12px 20px;
+    border-bottom: 1px solid var(--border);
+    background: var(--panel-bg);
+}
+
+.topbar h1 {
+    font-size: 20px;
+    letter-spacing: 2px;
+}
+
+.topbar .accent { color: var(--accent); }
+
+.status {
+    display: flex;
+    gap: 20px;
+    align-items: center;
+}
+
+.metric { color: var(--text-dim); }
+.metric #alert-count { color: var(--text); font-weight: 700; }
+
+/* connection indicator: red when offline, teal when live */
+#connection-status { font-weight: 700; letter-spacing: 1px; }
+#connection-status.offline { color: var(--high); }
+#connection-status.online  { color: var(--accent); }
+
+.layout {
+    flex: 1;
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 16px;
+    padding: 16px;
+    min-height: 0;            /* lets the alert list scroll inside the grid cell */
+}
+
+.panel {
+    background: var(--panel-bg);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 14px;
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+}
+
+.panel h2 {
+    font-size: 13px;
+    text-transform: uppercase;
+    letter-spacing: 2px;
+    color: var(--text-dim);
+    margin-bottom: 12px;
+}
+
+.alert-list {
+    list-style: none;
+    overflow-y: auto;
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.alert-item {
+    display: grid;
+    grid-template-columns: auto auto 1fr auto;
+    gap: 12px;
+    align-items: center;
+    padding: 8px 12px;
+    background: var(--bg);
+    border-left: 3px solid var(--text-dim);
+    border-radius: 4px;
+    animation: slide-in 0.25s ease-out;
+}
+
+/* the severity -> colour chain: data-severity on the <li> drives the accent */
+.alert-item[data-severity="HIGH"]   { border-left-color: var(--high); }
+.alert-item[data-severity="MEDIUM"] { border-left-color: var(--medium); }
+.alert-item[data-severity="LOW"]    { border-left-color: var(--low); }
+
+.alert-time { color: var(--text-dim); }
+.alert-type { font-weight: 700; }
+.alert-ip   { color: var(--text-dim); }
+.alert-sev  { font-weight: 700; text-align: right; }
+
+.alert-item[data-severity="HIGH"]   .alert-sev { color: var(--high); }
+.alert-item[data-severity="MEDIUM"] .alert-sev { color: var(--medium); }
+.alert-item[data-severity="LOW"]    .alert-sev { color: var(--low); }
+
+@keyframes slide-in {
+    from { opacity: 0; transform: translateY(-6px); }
+    to   { opacity: 1; transform: translateY(0); }
+}
+
+.chart-panel canvas { max-height: 100%; }
