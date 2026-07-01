@@ -12,6 +12,8 @@ from core.detectors.brute_force import BruteForceDetector
 from core.detectors.dns_anomaly import DnsAnomalyDetector
 from core.detectors.port_scan import PortScanDetector
 from core.detectors.syn_flood import SynFloodDetector
+from core.response.engine import ResponseEngine
+from core.response.firewall import FirewallManager
 from db.database import init_db
 from db.queries import save_alert
 from ui.tui.app import SentinelApp
@@ -103,7 +105,15 @@ def main() -> None:
         cooldown_seconds = syn_cfg["cooldown_seconds"],
     )
 
-    app = SentinelApp(packet_queue=consumer, session_factory=SessionLocal)
+    resp_cfg        = config["response"]
+    firewall        = FirewallManager(direction=resp_cfg["direction"])
+    response_engine = ResponseEngine(firewall, SessionLocal, whitelist=resp_cfg["whitelist"])
+
+    app = SentinelApp(
+        packet_queue=consumer,
+        session_factory=SessionLocal,
+        response_engine=response_engine,
+    )
 
     def _shutdown(sig, frame):
         capture.stop()
