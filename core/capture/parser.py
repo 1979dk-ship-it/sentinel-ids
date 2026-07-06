@@ -1,5 +1,4 @@
 import time
-from typing import Optional
 
 from scapy.layers.dns import DNS, DNSQR
 from scapy.layers.inet import IP, TCP, UDP, ICMP
@@ -12,11 +11,12 @@ class PacketParser:
     Decouples downstream detectors from Scapy's complex internal objects.
     """
 
-    def parse(self, packet) -> Optional[dict]:
+    def parse(self, packet) -> dict:
         """
-        Extracts relevant fields across L2-L4 layers.
-        Returns None if the packet does not match supported protocols,
-        filtering out irrelevant traffic early in the pipeline.
+        Extracts relevant fields across L2-L4 layers into a flat dict.
+        Always returns a dict; fields for layers the packet lacks stay None
+        (and `protocol` is "OTHER" for unsupported protocols), so downstream
+        detectors filter on `protocol` rather than on a None return.
         """
         result = self._base(packet)
         self._extract_ethernet(packet, result)
