@@ -1,0 +1,4 @@
+# Development & test dependencies (not needed to run SENTINEL, only to develop it)
+
+# Testing
+pytest>=8.0

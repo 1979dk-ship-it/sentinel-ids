@@ -1,0 +1,112 @@
+"""Unit tests for SynFloodDetector.
+
+This detector splits work in two: `_process` only accumulates SYN/ACK counts
+per destination, and `_evaluate_all(now)` checks the ratio and fires. So each
+test feeds packets, then calls `_evaluate_all` explicitly - calling `_process`
+alone never alerts.
+"""
+import queue
+
+from core.detectors.syn_flood import SynFloodDetector
+
+
+def make_tcp(flags="S", **overrides):
+    """A pure-SYN TCP packet to a fixed destination; override fields per test."""
+    packet = {
+        "protocol": "TCP",
+        "dst_ip": "10.0.0.1",
+        "src_ip": "1.2.3.4",
+        "flags": flags,
+        "timestamp": 1000.0,
+    }
+    packet.update(overrides)
+    return packet
+
+
+def test_syn_flood_fires_medium():
+    alerts = queue.Queue()
+    detector = SynFloodDetector(queue.Queue(), alerts,
+                                ratio_medium=10, ratio_high=50, min_syn=20)
+
+    for _ in range(30):   # 30 SYN, 0 ACK -> ratio 30: above medium (10), below high (50)
+        detector._process(make_tcp("S"))
+    detector._evaluate_all(now=1000.0)
+
+    alert = alerts.get_nowait()
+    assert alert.type == "SYN_FLOOD"
+    assert alert.severity == "MEDIUM"
+    assert alert.src_ip is None   # source is spoofed; the target is what matters
+    assert alert.details["dst_ip"] == "10.0.0.1"
+    assert alert.details["syn_count"] == 30
+    assert alert.details["ack_count"] == 0
+    assert alert.details["ratio"] == 30.0
+    assert alerts.empty()
+
+
+def test_syn_flood_fires_high():
+    alerts = queue.Queue()
+    detector = SynFloodDetector(queue.Queue(), alerts,
+                                ratio_medium=10, ratio_high=50, min_syn=20)
+
+    for _ in range(60):   # ratio 60 > high threshold of 50
+        detector._process(make_tcp("S"))
+    detector._evaluate_all(now=1000.0)
+
+    alert = alerts.get_nowait()
+    assert alert.severity == "HIGH"
+    assert alert.details["syn_count"] == 60
+    assert alert.details["ratio"] == 60.0
+    assert alerts.empty()
+
+
+def test_below_min_syn_floor_is_quiet():
+    alerts = queue.Queue()
+    detector = SynFloodDetector(queue.Queue(), alerts, min_syn=20, ratio_medium=10)
+
+    for _ in range(10):   # 10 < min_syn floor of 20, so the ratio is never checked
+        detector._process(make_tcp("S"))
+    detector._evaluate_all(now=1000.0)
+
+    assert alerts.empty()
+
+
+def test_healthy_handshakes_are_quiet():
+    alerts = queue.Queue()
+    detector = SynFloodDetector(queue.Queue(), alerts, min_syn=20, ratio_medium=10)
+
+    # Every SYN is matched by a completing ACK -> ratio 1, well under any threshold.
+    for _ in range(30):
+        detector._process(make_tcp("S"))
+    for _ in range(30):
+        detector._process(make_tcp("A"))
+    detector._evaluate_all(now=1000.0)
+
+    assert alerts.empty()
+
+
+def test_mixed_flags_are_not_counted():
+    alerts = queue.Queue()
+    detector = SynFloodDetector(queue.Queue(), alerts, min_syn=20, ratio_medium=10)
+
+    # Only pure SYN and pure ACK count; SYN-ACK ("SA") is noise for this ratio.
+    for _ in range(30):
+        detector._process(make_tcp("SA"))
+    detector._evaluate_all(now=1000.0)
+
+    assert alerts.empty()
+
+
+def test_non_tcp_and_missing_fields_ignored():
+    alerts = queue.Queue()
+    detector = SynFloodDetector(queue.Queue(), alerts, min_syn=20, ratio_medium=10)
+
+    # 30 of each would cross the floor and fire if any guard leaked them through.
+    for _ in range(30):
+        detector._process(make_tcp("S", protocol="UDP"))   # not TCP
+    for _ in range(30):
+        detector._process(make_tcp("S", dst_ip=None))      # no destination
+    for _ in range(30):
+        detector._process(make_tcp(flags=None))            # no flags
+    detector._evaluate_all(now=1000.0)
+
+    assert alerts.empty()
