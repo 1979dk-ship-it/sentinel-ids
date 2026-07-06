@@ -4,10 +4,7 @@ Each test runs against a fresh, file-backed SQLite database provided by the
 `session_factory` fixture, so tests are fully isolated. The queries take `now`
 explicitly, so time-based filtering is deterministic.
 """
-import pytest
-
 from core.alerts.alert import Alert
-from db.database import init_db
 from db.queries import (
     active_blocks,
     alerts_since,
@@ -16,12 +13,6 @@ from db.queries import (
     record_unblock,
     save_alert,
 )
-
-
-@pytest.fixture
-def session_factory(tmp_path):
-    """A fresh, isolated SQLite database (its own file) for each test."""
-    return init_db((tmp_path / "test.db").as_posix())
 
 
 def test_save_alert_and_query_back(session_factory):
