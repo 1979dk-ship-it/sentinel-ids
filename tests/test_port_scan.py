@@ -98,6 +98,20 @@ def test_scan_fires_again_after_cooldown():
     assert alerts.get_nowait().severity == "HIGH"
 
 
+def test_idle_source_windows_are_swept():
+    # White-box: idle source windows are reclaimed so _windows stays bounded.
+    detector = PortScanDetector(queue.Queue(), queue.Queue(),
+                                threshold_ports=15, window_seconds=5)
+
+    for i in range(3):   # three sources below threshold -> three live windows
+        detector._process(make_packet(src_ip=f"10.0.0.{i}", timestamp=1000.0))
+    assert len(detector._windows) == 3
+
+    # a new source after the window elapsed sweeps the three drained ones first
+    detector._process(make_packet(src_ip="10.0.0.99", timestamp=1006.0))
+    assert list(detector._windows.keys()) == ["10.0.0.99"]
+
+
 def test_missing_fields_do_not_crash_or_alert():
     alerts = queue.Queue()
     detector = PortScanDetector(queue.Queue(), alerts, threshold_ports=3)

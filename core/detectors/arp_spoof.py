@@ -3,7 +3,7 @@ import threading
 import time
 
 from core.alerts.alert import Alert
-from core.utils.sliding_window import SlidingWindow
+from core.utils.sliding_window import SlidingWindow, prune_idle_windows
 
 
 class ArpSpoofDetector:
@@ -37,6 +37,7 @@ class ArpSpoofDetector:
 
         # src_mac → SlidingWindow of gratuitous ARP events
         self._gratuitous: dict[str, SlidingWindow] = {}
+        self._last_sweep: float = 0.0
 
         self._thread: threading.Thread | None = None
         self._stop_event = threading.Event()
@@ -72,6 +73,8 @@ class ArpSpoofDetector:
         dst_ip  = packet.get("dst_ip")
         arp_op  = packet.get("arp_op")
         now     = packet.get("timestamp") or time.time()
+
+        self._maybe_sweep(now)
 
         if not src_ip or not src_mac:
             return
@@ -126,6 +129,13 @@ class ArpSpoofDetector:
                 },
             )
             window.clear()
+
+    def _maybe_sweep(self, now: float) -> None:
+        """Drop idle per-MAC windows, at most once per gratuitous window."""
+        if now - self._last_sweep < self._gratuitous_window_seconds:
+            return
+        prune_idle_windows(self._gratuitous, now)
+        self._last_sweep = now
 
     def _emit(self, src_ip: str, severity: str, details: dict) -> None:
         self._alerts.put(Alert(

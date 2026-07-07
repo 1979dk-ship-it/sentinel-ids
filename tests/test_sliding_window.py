@@ -3,7 +3,7 @@
 There is no `import time` here: every test supplies `now` by hand, so the tests
 are deterministic and run in microseconds instead of sleeping on a real clock.
 """
-from core.utils.sliding_window import SlidingWindow
+from core.utils.sliding_window import SlidingWindow, prune_idle_windows
 
 
 def test_add_returns_running_count_for_key():
@@ -86,3 +86,22 @@ def test_clear_empties_the_window():
     assert window.total() == 0
     assert window.distinct() == 0
     assert window.count("port-22") == 0
+
+
+def test_prune_idle_windows_removes_only_drained_windows():
+    active = SlidingWindow(window_seconds=5)
+    active.add(now=104.0, key="x")          # recent – still inside the window at 106
+    idle = SlidingWindow(window_seconds=5)
+    idle.add(now=100.0, key="y")            # 6s old at 106 – has drained
+
+    windows = {"active": active, "idle": idle}
+    removed = prune_idle_windows(windows, now=106.0)   # cutoff = 101
+
+    assert removed == 1
+    assert set(windows) == {"active"}
+
+
+def test_prune_idle_windows_on_empty_dict_is_noop():
+    windows: dict = {}
+    assert prune_idle_windows(windows, now=100.0) == 0
+    assert windows == {}

@@ -59,3 +59,20 @@ class SlidingWindow:
             self._counts[expired] -= 1
             if self._counts[expired] <= 0:
                 del self._counts[expired]
+
+
+def prune_idle_windows(windows: dict[Hashable, SlidingWindow], now: float) -> int:
+    """Prune each window to `now`, drop the ones left empty, return the count.
+
+    SlidingWindow expires events only lazily, so a window must be pruned before
+    is_empty() tells the truth. Call periodically to bound a per-key window dict:
+    otherwise it keeps one entry per key that ever appeared.
+    """
+    removed = 0
+    for key in list(windows.keys()):   # snapshot: we delete while iterating
+        window = windows[key]
+        window.prune(now)
+        if window.is_empty():
+            del windows[key]
+            removed += 1
+    return removed

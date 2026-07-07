@@ -4,7 +4,7 @@ import time
 
 from core.alerts.alert import Alert
 from core.utils.cooldown import CooldownTracker
-from core.utils.sliding_window import SlidingWindow
+from core.utils.sliding_window import SlidingWindow, prune_idle_windows
 
 _SSH_PORT   = 22
 _HTTP_PORT  = 80
@@ -50,6 +50,11 @@ class BruteForceDetector:
         self._windows:  dict[tuple, SlidingWindow] = {}
         self._cooldown: CooldownTracker            = CooldownTracker(cooldown_seconds)
 
+        self._last_sweep:     float = 0.0
+        # cadence = shortest service window
+        self._sweep_interval: int   = min(ssh_window_seconds, http_window_seconds,
+                                          https_window_seconds)
+
         self._thread: threading.Thread | None = None
         self._stop_event = threading.Event()
 
@@ -85,6 +90,8 @@ class BruteForceDetector:
         flags    = packet.get("flags", "")
         now      = packet.get("timestamp") or time.time()
 
+        self._maybe_sweep(now)
+
         if not src_ip or not dst_ip or not dst_port:
             return
 
@@ -103,6 +110,13 @@ class BruteForceDetector:
             if b"POST" in payload and b"/login" in payload:
                 self._record(src_ip, dst_ip, dst_port, now,
                              self._http_threshold, self._http_window, "HTTP")
+
+    def _maybe_sweep(self, now: float) -> None:
+        """Drop idle (src,dst,port) windows, at most once per sweep interval."""
+        if now - self._last_sweep < self._sweep_interval:
+            return
+        prune_idle_windows(self._windows, now)
+        self._last_sweep = now
 
     def _record(
         self,
