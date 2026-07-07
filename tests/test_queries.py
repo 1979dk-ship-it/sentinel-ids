@@ -28,6 +28,19 @@ def test_save_alert_and_query_back(session_factory):
     assert rows[0].details == {"ports": [22, 80]}
 
 
+def test_save_alert_with_null_src_ip(session_factory):
+    # A SYN flood carries a spoofed source, so its alert has no src_ip. Storing
+    # it must succeed – the column is nullable – and read back as None.
+    alert = Alert(type="SYN_FLOOD", severity="HIGH", src_ip=None,
+                  timestamp=2000.0, details={"dst_ip": "10.0.0.5", "ratio": 60.0})
+    save_alert(session_factory, alert)
+
+    rows = alerts_since(session_factory, seconds=3600, now=2000.0)
+    assert len(rows) == 1
+    assert rows[0].type == "SYN_FLOOD"
+    assert rows[0].src_ip is None
+
+
 def test_alerts_since_filters_window_and_orders_newest_first(session_factory):
     save_alert(session_factory, Alert("OLD", "LOW", "0.0.0.0", timestamp=1000.0))
     save_alert(session_factory, Alert("A", "LOW", "1.1.1.1", timestamp=4000.0))
