@@ -86,6 +86,18 @@ def test_query_flood_fires_medium():
     assert alerts.empty()
 
 
+def test_idle_source_windows_are_swept():
+    # White-box: idle source windows are reclaimed so _windows stays bounded.
+    detector = DnsAnomalyDetector(queue.Queue(), queue.Queue(), query_window_seconds=60)
+
+    for i in range(3):   # benign query -> a live window per source
+        detector._process(make_dns(src_ip=f"10.0.0.{i}", timestamp=1000.0))
+    assert len(detector._windows) == 3
+
+    detector._process(make_dns(src_ip="10.0.0.99", timestamp=1061.0))
+    assert list(detector._windows.keys()) == ["10.0.0.99"]
+
+
 def test_non_dns_and_missing_fields_ignored():
     alerts = queue.Queue()
     detector = DnsAnomalyDetector(queue.Queue(), alerts, subdomain_max_length=5)

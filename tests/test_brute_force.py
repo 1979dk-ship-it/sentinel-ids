@@ -99,6 +99,18 @@ def test_repeat_within_cooldown_is_suppressed():
     assert alerts.empty()
 
 
+def test_idle_session_windows_are_swept():
+    # White-box: idle (src,dst,port) windows are reclaimed so _windows stays bounded.
+    detector = BruteForceDetector(queue.Queue(), queue.Queue(), ssh_threshold=5)
+
+    for i in range(3):   # one SYN per distinct source, below threshold
+        detector._process(make_tcp(src_ip=f"10.0.0.{i}", dst_port=22, timestamp=1000.0))
+    assert len(detector._windows) == 3
+
+    detector._process(make_tcp(src_ip="10.0.0.99", dst_port=22, timestamp=1031.0))
+    assert list(detector._windows.keys()) == [("10.0.0.99", "10.0.0.1", 22)]
+
+
 def test_non_tcp_and_missing_fields_ignored():
     alerts = queue.Queue()
     detector = BruteForceDetector(queue.Queue(), alerts, ssh_threshold=1)
