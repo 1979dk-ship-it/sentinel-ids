@@ -96,6 +96,24 @@ def test_mixed_flags_are_not_counted():
     assert alerts.empty()
 
 
+def test_flood_detected_on_packet_time_without_wall_clock():
+    # Regression: a flood is detected through _process alone, driven by packet
+    # timestamps as in a PCAP replay - no wall-clock _evaluate_all() call. A
+    # packet crossing the window boundary in packet time triggers the evaluation.
+    alerts = queue.Queue()
+    detector = SynFloodDetector(queue.Queue(), alerts,
+                                ratio_medium=10, min_syn=20, window_seconds=5)
+
+    t = 1000.0
+    for _ in range(31):   # 31 SYN spread over 6 packet-seconds at 5/sec
+        detector._process(make_tcp("S", timestamp=t))
+        t += 0.2
+
+    alert = alerts.get_nowait()
+    assert alert.type == "SYN_FLOOD"
+    assert alert.details["dst_ip"] == "10.0.0.1"
+
+
 def test_non_tcp_and_missing_fields_ignored():
     alerts = queue.Queue()
     detector = SynFloodDetector(queue.Queue(), alerts, min_syn=20, ratio_medium=10)
