@@ -5,7 +5,7 @@ import time
 
 from core.alerts.alert import Alert
 from core.utils.cooldown import CooldownTracker
-from core.utils.sliding_window import SlidingWindow
+from core.utils.sliding_window import SlidingWindow, prune_idle_windows
 
 _DNS_PORT = 53
 
@@ -62,6 +62,7 @@ class DnsAnomalyDetector:
         # src_ip → SlidingWindow keyed by qname
         self._windows:  dict[str, SlidingWindow] = {}
         self._cooldown: CooldownTracker          = CooldownTracker(cooldown_seconds)
+        self._last_sweep: float = 0.0
 
         self._thread: threading.Thread | None = None
         self._stop_event = threading.Event()
@@ -103,6 +104,8 @@ class DnsAnomalyDetector:
         now       = packet.get("timestamp") or time.time()
         subdomain = _leftmost_label(qname)
 
+        self._maybe_sweep(now)
+
         if not src_ip:
             return
 
@@ -136,6 +139,13 @@ class DnsAnomalyDetector:
             self._emit(src_ip, qname, qtype, "QUERY_FLOOD",
                        "MEDIUM", count, now)
             self._cooldown.mark(cooldown_key, now)
+
+    def _maybe_sweep(self, now: float) -> None:
+        """Drop idle source windows, at most once per query window."""
+        if now - self._last_sweep < self._query_window:
+            return
+        prune_idle_windows(self._windows, now)
+        self._last_sweep = now
 
     def _emit(
         self,

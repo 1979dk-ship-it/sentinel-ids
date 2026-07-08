@@ -45,10 +45,16 @@ class ResponseEngine:
         record_block(self._sf, ip, reason, blocked_by)
         return ActionResult(True, f"Blocked {ip}")
 
-    def unblock(self, ip: str) -> ActionResult:
+    def unblock(self, ip: str | None) -> ActionResult:
         """Lift an existing block on `ip`."""
+        if not ip:
+            return ActionResult(False, "No source IP to unblock")
         if not is_blocked(self._sf, ip):
             return ActionResult(False, f"{ip} is not blocked")
-        self._firewall.unblock(ip)
+        if not self._firewall.unblock(ip):
+            return ActionResult(False, f"Firewall rejected unblock for {ip} (run as admin?)")
+
+        # Record the unblock only after the firewall confirms it, so the DB can't
+        # mark an IP free while its rule still blocks traffic.
         record_unblock(self._sf, ip)
         return ActionResult(True, f"Unblocked {ip}")

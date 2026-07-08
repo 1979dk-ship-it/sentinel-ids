@@ -26,14 +26,26 @@ def _load_config(path: str = "config/config.yaml") -> dict:
 
 
 def _alert_loop(alert_queue: queue.Queue, session_factory, app: SentinelApp) -> None:
-    """Persists alerts to DB and pushes them to the TUI via call_from_thread."""
+    """Persists alerts to DB and pushes them to the TUI via call_from_thread.
+
+    Each alert is handled in isolation: a failure on one alert (a transient DB
+    error, an unexpected payload) is reported and skipped, never allowed to kill
+    the loop – otherwise the first bad alert would silence persistence and the
+    live feed for every alert that follows.
+    """
     while True:
         try:
             alert = alert_queue.get(timeout=1)
-            save_alert(session_factory, alert)
-            app.call_from_thread(app.push_alert, alert)
         except queue.Empty:
             continue
+        try:
+            save_alert(session_factory, alert)
+            app.call_from_thread(app.push_alert, alert)
+        except Exception as exc:
+            try:
+                app.call_from_thread(app.notify, f"Alert error: {exc}", severity="error")
+            except Exception:
+                pass
 
 
 def main() -> None:

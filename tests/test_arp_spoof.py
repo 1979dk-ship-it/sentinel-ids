@@ -87,6 +87,21 @@ def test_gratuitous_below_threshold_is_quiet():
     assert alerts.empty()
 
 
+def test_idle_gratuitous_windows_are_swept():
+    # White-box: idle per-MAC windows are reclaimed so _gratuitous stays bounded.
+    detector = ArpSpoofDetector(queue.Queue(), queue.Queue(),
+                                gratuitous_threshold=3, gratuitous_window_seconds=60)
+
+    for i in range(3):   # one gratuitous reply per distinct MAC, below threshold
+        detector._process(make_arp(src_ip=f"10.0.0.{i}", src_mac=f"aa:aa:aa:aa:aa:0{i}",
+                                   dst_ip=f"10.0.0.{i}", timestamp=1000.0))
+    assert len(detector._gratuitous) == 3
+
+    detector._process(make_arp(src_ip="10.0.0.9", src_mac="bb:bb:bb:bb:bb:bb",
+                               dst_ip="10.0.0.9", timestamp=1061.0))
+    assert list(detector._gratuitous.keys()) == ["bb:bb:bb:bb:bb:bb"]
+
+
 def test_non_arp_and_missing_fields_are_ignored():
     alerts = queue.Queue()
     detector = ArpSpoofDetector(queue.Queue(), alerts)

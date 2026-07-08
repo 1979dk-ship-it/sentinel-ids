@@ -84,3 +84,12 @@ def test_block_returns_false_when_netsh_missing(monkeypatch):
     monkeypatch.setattr(subprocess, "run", raise_fnf)
 
     assert FirewallManager().block("1.2.3.4") is False
+
+
+def test_block_returns_false_when_netsh_hangs(monkeypatch):
+    def raise_timeout(args, **kwargs):
+        raise subprocess.TimeoutExpired(cmd=args, timeout=5)   # netsh wedged, timed out
+
+    monkeypatch.setattr(subprocess, "run", raise_timeout)
+
+    assert FirewallManager().block("1.2.3.4") is False

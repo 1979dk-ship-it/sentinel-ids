@@ -4,7 +4,7 @@ import time
 
 from core.alerts.alert import Alert
 from core.utils.cooldown import CooldownTracker
-from core.utils.sliding_window import SlidingWindow
+from core.utils.sliding_window import SlidingWindow, prune_idle_windows
 
 
 # Flag combinations that indicate stealth scans
@@ -40,6 +40,7 @@ class PortScanDetector:
 
         # src_ip → SlidingWindow keyed by dst_port
         self._windows: dict[str, SlidingWindow] = {}
+        self._last_sweep: float = 0.0
 
         # (src_ip, scan_type) → last alert time. Keying on scan_type too means a
         # NULL scan and a SYN scan from the same host don't silence each other.
@@ -77,8 +78,10 @@ class PortScanDetector:
         """Evaluate a single packet for port scan indicators."""
         src_ip   = packet.get("src_ip")
         dst_port = packet.get("dst_port")
-        flags    = packet.get("flags", "")
+        flags    = packet.get("flags")
         now      = packet.get("timestamp") or time.time()
+
+        self._maybe_sweep(now)
 
         # stealth scan detection – flag-based, no window needed
         if flags is not None and packet.get("protocol") == "TCP":
@@ -114,6 +117,14 @@ class PortScanDetector:
             # cooldown lapses, instead of silently restarting the count.
             if fired:
                 window.clear()
+
+    def _maybe_sweep(self, now: float) -> None:
+        """Drop idle source windows, at most once per window (amortized O(1)/packet).
+        src_ip is spoofable, so without this _windows grows unbounded."""
+        if now - self._last_sweep < self._window_seconds:
+            return
+        prune_idle_windows(self._windows, now)
+        self._last_sweep = now
 
     def _emit(self, src_ip: str, severity: str, details: dict, now: float) -> bool:
         """Queue an Alert unless this (src_ip, scan_type) is still cooling down.

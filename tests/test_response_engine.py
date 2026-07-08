@@ -10,10 +10,11 @@ from db.queries import is_blocked, record_block
 
 
 class _FakeFirewall:
-    """Records block/unblock calls; block() returns a configurable success flag."""
+    """Records block/unblock calls; each returns a configurable success flag."""
 
-    def __init__(self, block_ok=True):
+    def __init__(self, block_ok=True, unblock_ok=True):
         self.block_ok = block_ok
+        self.unblock_ok = unblock_ok
         self.blocked = []
         self.unblocked = []
 
@@ -23,7 +24,7 @@ class _FakeFirewall:
 
     def unblock(self, ip):
         self.unblocked.append(ip)
-        return True
+        return self.unblock_ok
 
 
 def test_block_succeeds_and_records(session_factory):
@@ -100,3 +101,25 @@ def test_unblock_succeeds(session_factory):
     assert result.ok is True
     assert fw.unblocked == ["1.2.3.4"]
     assert is_blocked(session_factory, "1.2.3.4") is False
+
+
+def test_unblock_when_firewall_fails_keeps_block(session_factory):
+    fw = _FakeFirewall(block_ok=True, unblock_ok=False)   # netsh delete fails, e.g. not admin
+    engine = ResponseEngine(fw, session_factory)
+    engine.block("1.2.3.4", reason="scan")
+
+    result = engine.unblock("1.2.3.4")
+
+    assert result.ok is False
+    assert fw.unblocked == ["1.2.3.4"]                      # the firewall WAS attempted
+    assert is_blocked(session_factory, "1.2.3.4") is True   # still blocked - the DB was not changed
+
+
+def test_unblock_with_no_ip_refuses(session_factory):
+    fw = _FakeFirewall()
+    engine = ResponseEngine(fw, session_factory)
+
+    result = engine.unblock(None)
+
+    assert result.ok is False
+    assert fw.unblocked == []   # firewall never touched

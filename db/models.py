@@ -20,7 +20,10 @@ class AlertRecord(Base):
     timestamp: Mapped[float]          = mapped_column(Float, index=True)
     type:      Mapped[str]            = mapped_column(String, index=True)
     severity:  Mapped[str]            = mapped_column(String)
-    src_ip:    Mapped[str]            = mapped_column(String, index=True)
+    # Nullable on purpose: a SYN flood carries no real src_ip (the source is
+    # spoofed), so its alert is stored with src_ip = None. The index still
+    # covers the rows that do have a source.
+    src_ip:    Mapped[str | None]     = mapped_column(String, index=True)
     details:   Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
 
 

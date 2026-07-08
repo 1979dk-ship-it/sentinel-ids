@@ -51,6 +51,7 @@ class SynFloodDetector:
         # dst_ip -> SlidingWindow keyed by flag type (_SYN / _ACK)
         self._windows:  dict[str, SlidingWindow] = {}
         self._cooldown: CooldownTracker          = CooldownTracker(cooldown_seconds)
+        self._last_eval: float | None = None
 
         self._thread: threading.Thread | None = None
         self._stop_event = threading.Event()
@@ -70,22 +71,12 @@ class SynFloodDetector:
             self._thread.join(timeout=3)
 
     def _run(self) -> None:
-        last_eval = time.time()
         while not self._stop_event.is_set():
             try:
                 packet = self._packets.get(timeout=1)
-                self._process(packet)
             except queue.Empty:
-                pass
-
-            # Evaluate the ratio over the full window on a fixed cadence rather
-            # than on every SYN. Firing at the first floor crossing emitted a
-            # MEDIUM and cleared the window before the ratio could grow, so HIGH
-            # was unreachable. A periodic check sees the true rate per window.
-            now = time.time()
-            if now - last_eval >= self._window:
-                self._evaluate_all(now)
-                last_eval = now
+                continue
+            self._process(packet)
 
     def _process(self, packet: dict) -> None:
         if packet.get("protocol") != "TCP":
@@ -104,6 +95,15 @@ class SynFloodDetector:
             self._add(dst_ip, _SYN, now)
         elif flags == _ACK:
             self._add(dst_ip, _ACK, now)
+
+        # Evaluate once per window, not per SYN (a premature MEDIUM would lock the
+        # cooldown before HIGH is reachable), and on packet time not wall-clock so
+        # "window" means seconds of traffic in both live capture and PCAP replay.
+        if self._last_eval is None:
+            self._last_eval = now
+        elif now - self._last_eval >= self._window:
+            self._evaluate_all(now)
+            self._last_eval = now
 
     def _add(self, dst_ip: str, flag: str, now: float) -> None:
         window = self._windows.get(dst_ip)
