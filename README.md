@@ -6,7 +6,7 @@ A real-time network intrusion detection system (IDS) that runs on Windows, liste
 
 ## What It Does
 
-SENTINEL captures every packet that travels through the network and analyzes it in real time. When it detects suspicious behavior, it raises an alert with the attacker's IP, the attack type, and a severity level (HIGH / MEDIUM / LOW). Once the response engine lands (Phase 10), the user will be able to block the attacker with a single keystroke.
+SENTINEL captures every packet that travels through the network and analyzes it in real time. When it detects suspicious behavior, it raises an alert with the attacker's IP, the attack type, and a severity level (HIGH / MEDIUM / LOW). From the terminal UI the user can block the attacker with a single keystroke: the response engine adds a Windows Firewall rule on command — never automatically — and lifts it just as easily.
 
 **The 5 attacks SENTINEL detects:**
 
@@ -33,7 +33,7 @@ SENTINEL captures every packet that travels through the network and analyzes it 
      ↓     ↓     ↓     ↓     ↓
   [Port] [ARP] [BF] [DNS] [SYN]   core/detectors/
      ↓     ↓     ↓     ↓     ↓
-        [Alert Manager]            core/alerts/
+        [Alert Loop]               core/alerts/ + main.py
          ↓           ↓
    [Terminal UI]  [Web Dashboard]  ui/tui/  ui/web/
          ↓
@@ -49,11 +49,11 @@ Each component has one responsibility and does not know about the others. The ca
 ## Folder Structure
 
 ```
-sentinel/                        # (planned) = scaffolded for a later phase, not built yet
+sentinel/
 ├── core/                        # All network and security logic
 │   ├── capture/                 # Packet ingestion pipeline
-│   │   ├── engine.py            # Listens to network interface or reads PCAP file
-│   │   ├── parser.py            # Breaks raw Scapy packet into clean, flat fields
+│   │   ├── engine.py            # Listens to a NIC (live) or replays a PCAP file
+│   │   ├── parser.py            # Breaks a raw Scapy packet into clean, flat fields
 │   │   └── queue.py             # Fan-out queue – sends each packet to all detectors
 │   ├── detectors/               # One file per attack type
 │   │   ├── port_scan.py
@@ -62,29 +62,29 @@ sentinel/                        # (planned) = scaffolded for a later phase, not
 │   │   ├── dns_anomaly.py
 │   │   └── syn_flood.py
 │   ├── utils/                   # Shared detection primitives
-│   │   ├── sliding_window.py    # Time-bounded O(1) event counter
+│   │   ├── sliding_window.py    # Time-bounded O(1) event counter + idle-window sweep
 │   │   └── cooldown.py          # Per-key alert suppression (anti-storm)
-│   ├── alerts/                  # Alert data + lifecycle
+│   ├── alerts/                  # Alert data
 │   │   ├── alert.py             # The Alert dataclass passed on the queue
-│   │   ├── manager.py           # (planned) Dedup + lifecycle management
-│   │   └── scoring.py           # (planned) Threat scoring engine (0–100)
-│   └── response/                # (planned) Automated and manual response actions
-│       ├── engine.py            # (planned) Waits for user confirmation before acting
-│       └── firewall.py          # (planned) Adds/removes Windows Firewall rules via netsh
+│   │   └── scoring.py           # (planned, Phase 11) Threat scoring engine (0–100)
+│   └── response/                # Block/unblock actions (Phase 10)
+│       ├── engine.py            # Policy brain – confirm, whitelist, record to DB
+│       └── firewall.py          # Adds/removes Windows Firewall rules via netsh
 │
 ├── db/                          # Data persistence layer
 │   ├── database.py              # SQLAlchemy engine + Base + init_db()
-│   ├── models.py                # Table definitions – alerts (more tables planned)
-│   └── queries.py               # save_alert + alerts_since (stat queries planned)
+│   ├── models.py                # Tables: alerts, blocked_ips
+│   └── queries.py               # save_alert, alerts_since, block/unblock/is_blocked
 │
 ├── ui/
-│   ├── tui/                     # Terminal UI (Textual framework)
+│   ├── tui/                     # Terminal UI (Textual framework) – primary interface
 │   │   ├── app.py               # Main Textual application + queue bridge
 │   │   ├── sentinel.tcss        # Dark tactical stylesheet
 │   │   └── widgets/             # stats_bar.py, packet_log.py, alert_panel.py
-│   └── web/                     # (planned) Web dashboard (FastAPI + WebSocket)
-│       ├── app.py               # (planned) FastAPI routes and WebSocket endpoint
-│       └── static/              # (planned) HTML, CSS, Chart.js frontend
+│   └── web/                     # Web dashboard (FastAPI + WebSocket) – read-only process
+│       ├── server.py            # create_app(): WebSocket push, serves the page, polls DB
+│       ├── __main__.py          # `python -m ui.web` entry point (binds the port)
+│       └── static/              # index.html, dashboard.js, dashboard.css (Chart.js)
 │
 ├── config/
 │   └── config.yaml              # All tunable thresholds – no hardcoded values in code
@@ -98,12 +98,15 @@ sentinel/                        # (planned) = scaffolded for a later phase, not
 │
 ├── pcap_samples/                # Pre-recorded attack traffic for offline replay
 │
-├── tests/                       # (planned) Automated tests – queue, parser, detectors
-├── docs/                        # (planned) ADRs, THREAT_MODEL.md, BENCHMARKS.md
+├── tests/                       # 88 pytest tests – utils, parser, detectors, db, response
+│   └── conftest.py              # Shared fixtures (fresh per-test file DB)
+├── docs/                        # (planned, Phase 13) ADRs, THREAT_MODEL.md, BENCHMARKS.md
 │
 ├── main.py                      # Entry point – starts the full system
-├── requirements.txt             # Python dependencies
-└── DEMO.md                      # (planned) Step-by-step demo scenarios
+├── requirements.txt             # Runtime dependencies
+├── requirements-dev.txt         # Test-only dependencies (pytest)
+├── pytest.ini                   # Test config (pythonpath + testpaths)
+└── DEMO.md                      # (planned, Phase 12) Step-by-step demo scenarios
 ```
 
 ---
@@ -144,8 +147,9 @@ Running three virtual machines (Kali, Ubuntu, Windows) simultaneously is too res
 
 ## Testing Strategy
 
-| Stage | Method |
+| Layer | Method |
 |-------|--------|
+| Unit tests | 88 `pytest` tests across the utils, parser, all 5 detectors, the DB layer, the firewall, and the response engine. Time is injected (no `sleep`s), so they are deterministic and run in ~1s: `python -m pytest` |
 | Development | Replay pre-recorded PCAP files with `rdpcap()` – exact repeatability for debugging |
 | Demo & live | Scapy loopback scripts (`scripts/sim_*.py`) craft and send fake attack packets over the local interface – no VMs required |
 
@@ -154,11 +158,18 @@ Running three virtual machines (Kali, Ubuntu, Windows) simultaneously is too res
 ## Getting Started
 
 ```bash
-# Install dependencies
+# Install runtime dependencies
 pip install -r requirements.txt
 
-# Run the system
+# Run the system (terminal UI – the primary interface)
 python main.py
+
+# Open the web dashboard in a second process (read-only)
+python -m ui.web
+
+# Run the test suite
+pip install -r requirements-dev.txt
+python -m pytest
 ```
 
 > Npcap must be installed for live capture. Download from https://npcap.com
@@ -178,12 +189,14 @@ python main.py
 | 6 | Brute force detector | ✅ Done – v0.6.0 |
 | 7 | DNS anomaly detector | ✅ Done – v0.7.0 |
 | 8 | SYN flood detector | ✅ Done – v0.8.0 |
-| 9 | Web dashboard | ⬜ Pending |
-| 10 | Response engine | ⬜ Pending |
-| 11 | Advanced features | ⬜ Pending |
+| 9 | Web dashboard | ✅ Done – v0.9.0 |
+| 10 | Response engine | ✅ Done – v0.10.0 |
+| 11 | Advanced features | 🔜 Next |
 | 12 | Demo scenarios | ⬜ Pending |
 | 13 | Portfolio polish | ⬜ Pending |
 
-> 🟡 **Phase 5 is partial:** the `alerts` table is live (write + read). The `packets`, `blocked_ips`, and `baselines` tables, retention cleanup, and built-in stat queries are deferred to later phases — the Web Dashboard and Response Engine will pull them in when they need them. This was a deliberate choice: build the persistence layer incrementally around what each consumer actually needs, rather than create empty tables up front.
+> ✅ **Test suite (v0.10.1) and audit round (v0.10.2):** after Phase 10 the project gained a committed suite of **88 `pytest` tests**, then a hardening round that fixed a SYN-flood alert-persistence crash, bounded detector memory against spoofed-source floods, made SYN-flood detection work under PCAP replay, and hardened the response layer (unblock symmetry, netsh timeout). Both shipped between Phase 10 and Phase 11.
 
-> 📌 **Build order vs. phase numbers:** the table follows the *plan's* phase numbers, not the order the work actually happened. The detection engine was the priority, so all five detectors (Phases 4, 6, 7, 8) were built and validated first — before the terminal UI (Phase 3) and the persistence layer (Phase 5), which came last. This is why the Git tags are not chronological: the newest commit is tagged `v0.3.0`, while `v0.8.0` sits earlier in history. Each tag is numbered after its **plan phase**, not its release date.
+> 🟡 **Phase 5 is partial:** the `alerts` table is live (write + read), and `blocked_ips` was added with the Response Engine (Phase 10). The `packets` and `baselines` tables, retention cleanup, and built-in stat queries are still deferred — each consumer pulls in what it needs, when it needs it, rather than creating empty tables up front.
+
+> 📌 **Build order vs. phase numbers:** the table follows the *plan's* phase numbers, not the order the work actually happened. The detection engine was the priority, so all five detectors (Phases 4, 6, 7, 8) were built and validated first — before the terminal UI (Phase 3) and the persistence layer (Phase 5). This is why the **early** Git tags are not chronological: `v0.3.0` (TUI) and `v0.5.0` (DB) sit later in history than the detector tags around them. From `v0.9.0` onward the tags are chronological. Each early tag is numbered after its **plan phase**, not its release date.
