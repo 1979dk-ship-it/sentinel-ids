@@ -12,6 +12,10 @@ import subprocess
 # find and delete exactly what block() added, and our rules are easy to spot.
 _RULE_PREFIX = "SENTINEL_block_"
 
+# Cap each netsh call so a hung firewall can't freeze the caller (block/unblock
+# run on the TUI event-loop thread). netsh normally returns in well under a second.
+_NETSH_TIMEOUT_SECONDS = 5
+
 
 class FirewallManager:
     """Adds/removes Windows Firewall rules that drop traffic for a single IP."""
@@ -51,11 +55,12 @@ class FirewallManager:
     def _run(self, args: list[str]) -> bool:
         """Run a netsh command. args is a LIST, so no shell parses the IP — this
         is what closes the command-injection door on an attacker-controlled IP.
-        Returns False (instead of raising) when netsh is missing or the command
-        fails, e.g. when not running as Administrator, so callers can degrade.
+        Returns False (instead of raising) when netsh is missing, hangs, or the
+        command fails, e.g. when not running as Administrator, so callers can degrade.
         """
         try:
-            result = subprocess.run(args, capture_output=True, text=True)
-        except FileNotFoundError:
-            return False  # netsh not present (e.g. not Windows)
+            result = subprocess.run(args, capture_output=True, text=True,
+                                    timeout=_NETSH_TIMEOUT_SECONDS)
+        except (FileNotFoundError, subprocess.TimeoutExpired):
+            return False  # netsh missing (not Windows) or hung past the timeout
         return result.returncode == 0
