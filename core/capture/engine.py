@@ -62,6 +62,5 @@ class PacketCapture:
         )
 
     def _handle_packet(self, raw_packet) -> None:
-        parsed = self._parser.parse(raw_packet)
-        if parsed:
-            self._queue.put(parsed)
+        # parse() always returns a dict - no None to guard against.
+        self._queue.put(self._parser.parse(raw_packet))

@@ -87,7 +87,7 @@ class BruteForceDetector:
         src_ip   = packet.get("src_ip")
         dst_ip   = packet.get("dst_ip")
         dst_port = packet.get("dst_port")
-        flags    = packet.get("flags", "")
+        flags    = packet.get("flags")
         now      = packet.get("timestamp") or time.time()
 
         self._maybe_sweep(now)
