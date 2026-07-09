@@ -66,6 +66,7 @@ def _alert_to_message(record: AlertRecord) -> dict[str, Any]:
         "type":      record.type,
         "severity":  record.severity,
         "src_ip":    record.src_ip,
+        "count":     record.count,
         "details":   record.details,
     }
 
@@ -81,24 +82,24 @@ def create_app(config: dict) -> FastAPI:
     async def lifespan(app: FastAPI):
         """Runs the live-push broadcaster for the whole life of the server.
 
-        Code before `yield` is startup; code after is shutdown. We seed
-        last_id to the newest alert already in the DB so the broadcaster only
-        pushes alerts that arrive *after* boot — the /ws handler is what
-        replays old history to a tab on connect, not this loop.
+        Code before `yield` is startup; code after is shutdown. We seed the
+        sent counts from the DB so the broadcaster only pushes what arrives or
+        changes *after* boot — the /ws handler replays old history to a tab on
+        connect, not this loop.
         """
         seed = await asyncio.to_thread(alerts_since, session_factory, history_seconds)
-        last_id = max((record.id for record in seed), default=0)
+        sent = {record.id: record.count for record in seed}
 
         async def broadcaster() -> None:
-            """Polls the DB every poll_seconds and pushes any new alerts."""
-            nonlocal last_id
+            """Poll the DB every poll_seconds, pushing new alerts and count bumps."""
+            nonlocal sent
             while True:
                 await asyncio.sleep(poll_seconds)
                 records = await asyncio.to_thread(alerts_since, session_factory, history_seconds)
-                for record in reversed(records):  # newest-first from DB -> push oldest-first
-                    if record.id > last_id:
+                for record in reversed(records):  # oldest-first so the client stacks newest on top
+                    if sent.get(record.id) != record.count:
                         await manager.broadcast(_alert_to_message(record))
-                        last_id = record.id
+                sent = {record.id: record.count for record in records}
 
         task = asyncio.create_task(broadcaster())
         try:

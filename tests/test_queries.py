@@ -12,6 +12,7 @@ from db.queries import (
     record_block,
     record_unblock,
     save_alert,
+    update_alert_count,
 )
 
 
@@ -26,6 +27,30 @@ def test_save_alert_and_query_back(session_factory):
     assert rows[0].severity == "HIGH"
     assert rows[0].src_ip == "1.2.3.4"
     assert rows[0].details == {"ports": [22, 80]}
+
+
+def test_save_alert_returns_id_and_dedup_defaults(session_factory):
+    alert_id = save_alert(session_factory, Alert("ARP_SPOOF", "HIGH", "1.2.3.4", timestamp=1000.0))
+
+    row = alerts_since(session_factory, seconds=3600, now=1000.0)[0]
+    assert alert_id == row.id
+    assert row.count == 1            # a fresh alert has been seen exactly once
+    assert row.last_seen == 1000.0   # first sighting == its own timestamp
+
+
+def test_update_alert_count_persists_count_and_last_seen(session_factory):
+    alert_id = save_alert(session_factory, Alert("DNS_ANOMALY", "HIGH", "5.5.5.5", timestamp=1000.0))
+
+    update_alert_count(session_factory, alert_id, count=47, now=1030.0)
+
+    row = alerts_since(session_factory, seconds=3600, now=1030.0)[0]
+    assert row.count == 47
+    assert row.last_seen == 1030.0
+    assert row.timestamp == 1000.0   # the window's start stays put
+
+
+def test_update_alert_count_missing_row_is_noop(session_factory):
+    update_alert_count(session_factory, alert_id=999, count=5, now=1000.0)  # must not raise
 
 
 def test_save_alert_with_null_src_ip(session_factory):

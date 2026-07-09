@@ -5,9 +5,13 @@ from textual.containers import Horizontal
 from textual.widgets import Header, Footer
 
 from core.alerts.alert import Alert
+from core.alerts.deduplicator import dedup_key
 from ui.tui.widgets.stats_bar import StatsBar
 from ui.tui.widgets.packet_log import PacketLog
 from ui.tui.widgets.alert_panel import AlertPanel
+
+
+_MAX_EPISODES = 100
 
 
 class SentinelApp(App):
@@ -30,6 +34,8 @@ class SentinelApp(App):
         self._packet_count    = 0
         self._alert_count     = 0
         self._last_alert: Alert | None = None   # the IP that 'b' will act on
+        self._alert_episodes: dict[tuple, tuple[Alert, int]] = {}
+        self._alerts_dirty    = False
 
     def compose(self) -> ComposeResult:
         yield Header()
@@ -43,6 +49,7 @@ class SentinelApp(App):
         # Drain the packet queue every 500 ms from the async event loop.
         # No call_from_thread needed here – set_interval runs in the event loop.
         self.set_interval(0.5, self._drain_packet_queue)
+        self.set_interval(0.5, self._refresh_alerts)
 
     async def _drain_packet_queue(self) -> None:
         packet_log = self.query_one(PacketLog)
@@ -60,11 +67,31 @@ class SentinelApp(App):
             stats_bar.update_packets(self._packet_count)
 
     def push_alert(self, alert: Alert) -> None:
-        # Called via app.call_from_thread() from the alert_loop thread.
+        # A new alert episode. Called via app.call_from_thread() from the loop.
         self._alert_count += 1
         self._last_alert = alert   # remember it so 'b' knows which IP to block
-        self.query_one(AlertPanel).add_alert(alert)
+        self._alert_episodes[dedup_key(alert)] = (alert, 1)
+        self._cap_episodes()
+        self._alerts_dirty = True
         self.query_one(StatsBar).update_alerts(self._alert_count)
+
+    def push_alert_count(self, alert: Alert, count: int) -> None:
+        # A repeat: bump the count in place, keeping the episode's first line.
+        key      = dedup_key(alert)
+        shown, _ = self._alert_episodes.get(key, (alert, count))
+        self._alert_episodes[key] = (shown, count)
+        self._last_alert   = shown
+        self._alerts_dirty = True
+
+    def _refresh_alerts(self) -> None:
+        if not self._alerts_dirty:
+            return
+        self.query_one(AlertPanel).render_episodes(self._alert_episodes.values())
+        self._alerts_dirty = False
+
+    def _cap_episodes(self) -> None:
+        while len(self._alert_episodes) > _MAX_EPISODES:
+            del self._alert_episodes[next(iter(self._alert_episodes))]
 
     def action_toggle_pause(self) -> None:
         self.query_one(PacketLog).toggle_pause()

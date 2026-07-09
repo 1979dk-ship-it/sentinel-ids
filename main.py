@@ -4,6 +4,7 @@ import threading
 import yaml
 
 from core.alerts.alert import Alert
+from core.alerts.deduplicator import Deduplicator
 from core.capture.engine import PacketCapture
 from core.capture.parser import PacketParser
 from core.capture.queue import PacketQueue
@@ -15,7 +16,7 @@ from core.detectors.syn_flood import SynFloodDetector
 from core.response.engine import ResponseEngine
 from core.response.firewall import FirewallManager
 from db.database import init_db
-from db.queries import save_alert
+from db.queries import save_alert, update_alert_count
 from ui.tui.app import SentinelApp
 
 
@@ -25,13 +26,26 @@ def _load_config(path: str = "config/config.yaml") -> dict:
         return yaml.safe_load(f)
 
 
-def _alert_loop(alert_queue: queue.Queue, session_factory, app: SentinelApp) -> None:
-    """Persists alerts to DB and pushes them to the TUI via call_from_thread.
+def _handle_alert(alert: Alert, session_factory, deduper: Deduplicator, app: SentinelApp) -> None:
+    """Route one alert through dedup: a new episode is persisted and shown, a
+    repeat only bumps the stored count – so a storm becomes one row, not thousands.
+    """
+    decision = deduper.process(alert)
+    if decision.is_new:
+        row_id = save_alert(session_factory, alert)
+        deduper.attach_row_id(alert, row_id)
+        app.call_from_thread(app.push_alert, alert)
+    else:
+        update_alert_count(session_factory, decision.row_id, decision.count, alert.timestamp)
+        app.call_from_thread(app.push_alert_count, alert, decision.count)
 
-    Each alert is handled in isolation: a failure on one alert (a transient DB
-    error, an unexpected payload) is reported and skipped, never allowed to kill
-    the loop – otherwise the first bad alert would silence persistence and the
-    live feed for every alert that follows.
+
+def _alert_loop(alert_queue: queue.Queue, session_factory, deduper: Deduplicator, app: SentinelApp) -> None:
+    """Consume the alert queue, handling each alert in isolation.
+
+    A failure on one alert (a transient DB error, an unexpected payload) is
+    reported and skipped, never allowed to kill the loop – otherwise the first
+    bad alert would silence persistence and the live feed for every alert after.
     """
     while True:
         try:
@@ -39,8 +53,7 @@ def _alert_loop(alert_queue: queue.Queue, session_factory, app: SentinelApp) -> 
         except queue.Empty:
             continue
         try:
-            save_alert(session_factory, alert)
-            app.call_from_thread(app.push_alert, alert)
+            _handle_alert(alert, session_factory, deduper, app)
         except Exception as exc:
             try:
                 app.call_from_thread(app.notify, f"Alert error: {exc}", severity="error")
@@ -62,6 +75,7 @@ def main() -> None:
     parser      = PacketParser()
     pkt_queue   = PacketQueue()
     alert_queue = queue.Queue()
+    deduper     = Deduplicator(config["alerts"]["dedup_window_seconds"])
 
     consumer    = pkt_queue.subscribe()
     capture     = PacketCapture(interface=interface, parser=parser, queue=pkt_queue)
@@ -147,7 +161,7 @@ def main() -> None:
 
     threading.Thread(
         target=_alert_loop,
-        args=(alert_queue, SessionLocal, app),
+        args=(alert_queue, SessionLocal, deduper, app),
         daemon=True,
     ).start()
 

@@ -11,9 +11,10 @@ from core.alerts.alert import Alert
 from db.models import AlertRecord, BlockedIp
 
 
-def save_alert(session_factory, alert: Alert) -> None:
-    """Persists a single Alert as a row in the alerts table.
+def save_alert(session_factory, alert: Alert) -> int:
+    """Persists a single Alert as a row and returns its new id.
 
+    The id lets the dedup layer address this row later to bump its count.
     A fresh session per alert is fine: alerts are rare events, not per-packet,
     so the open/commit/close overhead is negligible.
     """
@@ -24,8 +25,25 @@ def save_alert(session_factory, alert: Alert) -> None:
             severity  = alert.severity,
             src_ip    = alert.src_ip,
             details   = alert.details,
+            last_seen = alert.timestamp,
         )
         session.add(record)
+        session.commit()
+        return record.id
+
+
+def update_alert_count(session_factory, alert_id: int, count: int, now: float) -> None:
+    """Persist the dedup layer's running count onto its alert row.
+
+    The Deduplicator owns the count; this mirrors the latest value and stamps
+    last_seen with the most recent repeat. A missing row is a no-op.
+    """
+    with session_factory() as session:
+        record = session.get(AlertRecord, alert_id)
+        if record is None:
+            return
+        record.count     = count
+        record.last_seen = now
         session.commit()
 
 
