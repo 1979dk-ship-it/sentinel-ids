@@ -15,12 +15,16 @@ class _FakeApp:
 
     def __init__(self):
         self.pushed = []
+        self.counts = []
 
     def call_from_thread(self, fn, *args):
         fn(*args)
 
     def push_alert(self, alert):
         self.pushed.append(alert)
+
+    def push_alert_count(self, alert, count):
+        self.counts.append((alert, count))
 
 
 def _alert(t, src="1.1.1.1", atype="DNS_ANOMALY", sev="HIGH"):
@@ -50,7 +54,9 @@ def test_storm_collapses_to_one_row_and_one_push(session_factory):
     assert len(rows) == 1                       # one row, not 500
     assert rows[0].count == 500                 # the counter carries the magnitude
     assert rows[0].last_seen == 1000.0 + 499 * 0.01
-    assert len(app.pushed) == 1                 # live feed saw it once – storm suppressed
+    assert len(app.pushed) == 1                 # live feed saw one new alert – storm suppressed
+    assert len(app.counts) == 499               # the repeats arrived as count bumps
+    assert app.counts[-1][1] == 500             # the last bump carries the final total
 
 
 def test_new_episode_after_window_makes_a_second_row(session_factory):

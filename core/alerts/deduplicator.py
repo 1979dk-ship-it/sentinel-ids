@@ -3,6 +3,10 @@ from dataclasses import dataclass
 from core.alerts.alert import Alert
 
 
+def dedup_key(alert: Alert) -> tuple:
+    return (alert.src_ip, alert.type, alert.severity)
+
+
 @dataclass
 class Decision:
     is_new: bool
@@ -35,7 +39,7 @@ class Deduplicator:
         now = alert.timestamp
         self._maybe_prune(now)
 
-        key = self._key(alert)
+        key = dedup_key(alert)
         ep  = self._episodes.get(key)
         if ep is None or (now - ep.window_start) >= self._window:
             self._episodes[key] = _Episode(window_start=now, count=1, row_id=None)
@@ -45,13 +49,9 @@ class Deduplicator:
         return Decision(is_new=False, count=ep.count, row_id=ep.row_id)
 
     def attach_row_id(self, alert: Alert, row_id: int) -> None:
-        ep = self._episodes.get(self._key(alert))
+        ep = self._episodes.get(dedup_key(alert))
         if ep is not None:
             ep.row_id = row_id
-
-    @staticmethod
-    def _key(alert: Alert) -> tuple:
-        return (alert.src_ip, alert.type, alert.severity)
 
     def _maybe_prune(self, now: float) -> None:
         if (now - self._last_prune) <= self._window:
