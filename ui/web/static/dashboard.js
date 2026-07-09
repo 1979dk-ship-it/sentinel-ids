@@ -1,6 +1,7 @@
 /* SENTINEL IDS dashboard — live client.
-   Opens one WebSocket to the server; for every alert pushed down the wire it
-   (1) prepends a row to the live list and (2) bumps the count-by-type chart.
+   Opens one WebSocket to the server; each message either adds a new alert row or
+   updates an existing row's repeat counter (matched by DB id), and bumps the
+   count-by-type chart on new alerts only.
    Plain ES6, no framework; the only library is Chart.js (loaded in index.html). */
 
 "use strict";
@@ -51,9 +52,20 @@ function cell(className, text) {
     return span;                         // attacker-controlled — this neutralises XSS
 }
 
+function countText(count) {
+    return count > 1 ? `×${count}` : "";   // a first sighting shows no multiplier
+}
+
 function renderAlert(msg) {
+    const existing = listEl.querySelector(`li[data-id="${msg.id}"]`);
+    if (existing) {                      // a repeat: refresh its counter in place
+        existing.querySelector(".alert-count").textContent = countText(msg.count);
+        return;
+    }
+
     const li = document.createElement("li");
     li.className = "alert-item";
+    li.dataset.id = msg.id;              // lets a later count bump find this row
     li.dataset.severity = msg.severity;  // drives the CSS colour chain
 
     li.append(
@@ -61,6 +73,7 @@ function renderAlert(msg) {
         cell("alert-type", msg.type),
         cell("alert-ip", msg.src_ip),
         cell("alert-sev", msg.severity),
+        cell("alert-count", countText(msg.count)),
     );
 
     listEl.prepend(li);                  // newest on top
@@ -70,7 +83,7 @@ function renderAlert(msg) {
         listEl.lastElementChild.remove();
     }
 
-    countEl.textContent = ++alertCount;
+    countEl.textContent = ++alertCount;  // count distinct episodes, not repeats
     bumpChart(msg.type);
 }
 
