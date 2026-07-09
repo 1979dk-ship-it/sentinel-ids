@@ -6,7 +6,7 @@ this is the row written to disk.
 """
 from typing import Any
 
-from sqlalchemy import JSON, Float, String
+from sqlalchemy import JSON, Float, Integer, String
 from sqlalchemy.orm import Mapped, mapped_column
 
 from db.database import Base
@@ -25,6 +25,8 @@ class AlertRecord(Base):
     # covers the rows that do have a source.
     src_ip:    Mapped[str | None]     = mapped_column(String, index=True)
     details:   Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
+    count:     Mapped[int]            = mapped_column(Integer, default=1)
+    last_seen: Mapped[float]          = mapped_column(Float)
 
 
 class BlockedIp(Base):
