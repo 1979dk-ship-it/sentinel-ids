@@ -7,7 +7,10 @@ packet of a later interval arrives).
 """
 import queue
 
+from core.alerts.deduplicator import Deduplicator
 from core.detectors.baseline import BaselineDetector
+from db.queries import alerts_since
+from main import _handle_alert
 
 
 def _feed(det, src_ip, samples, t0=1000.0, interval=10):
@@ -98,6 +101,37 @@ def test_missing_src_ip_is_ignored():
     det = _detector(alerts)
     det._process({"src_ip": None, "timestamp": 1000.0})
     assert alerts.empty()
+
+
+class _FakeApp:
+    def call_from_thread(self, fn, *args):
+        fn(*args)
+
+    def push_alert(self, alert):
+        pass
+
+    def push_alert_count(self, alert, count):
+        pass
+
+
+def test_baseline_anomaly_reaches_the_database(session_factory):
+    alerts = queue.Queue()
+    det = _detector(alerts)
+    _feed(det, "10.0.0.5", [10, 11, 9, 10, 50])   # learn a baseline, then a spike
+
+    deduper = Deduplicator(window_seconds=60)
+    app     = _FakeApp()
+    while True:
+        try:
+            _handle_alert(alerts.get_nowait(), session_factory, deduper, app)
+        except queue.Empty:
+            break
+
+    rows = alerts_since(session_factory, seconds=3600, now=1100.0)   # alert lands at packet-time ~1050
+    assert len(rows) == 1
+    assert rows[0].type == "BASELINE_ANOMALY"
+    assert rows[0].severity == "HIGH"
+    assert rows[0].details["observed"] == 50
 
 
 def test_learning_resumes_after_restore(session_factory):
