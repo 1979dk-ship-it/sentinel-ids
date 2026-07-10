@@ -98,3 +98,19 @@ def test_missing_src_ip_is_ignored():
     det = _detector(alerts)
     det._process({"src_ip": None, "timestamp": 1000.0})
     assert alerts.empty()
+
+
+def test_learning_resumes_after_restore(session_factory):
+    det1 = _detector(queue.Queue(), session_factory=session_factory)
+    _feed(det1, "10.0.0.5", [10, 11, 9, 10])   # learn a baseline, no spike yet
+    det1._flush(2000.0)                          # persist the learned state
+
+    # a fresh detector restores that baseline and is immediately ready to detect
+    alerts = queue.Queue()
+    det2 = _detector(alerts, session_factory=session_factory)
+    det2._restore()
+    _feed(det2, "10.0.0.5", [50], t0=5000.0)     # a spike against the restored baseline
+
+    alert = alerts.get_nowait()
+    assert alert.type == "BASELINE_ANOMALY"
+    assert alert.src_ip == "10.0.0.5"

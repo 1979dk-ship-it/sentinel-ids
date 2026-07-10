@@ -4,6 +4,7 @@ import time
 
 from core.alerts.alert import Alert
 from core.utils.welford import Welford
+from db.queries import load_baselines, save_baselines
 
 
 class BaselineDetector:
@@ -25,6 +26,7 @@ class BaselineDetector:
         z_medium:           float = 3.0,
         z_high:             float = 5.0,
         idle_evict_seconds: int   = 3600,
+        session_factory           = None,
     ):
         self._packets     = packet_queue
         self._alerts      = alert_queue
@@ -33,6 +35,7 @@ class BaselineDetector:
         self._z_medium    = z_medium
         self._z_high      = z_high
         self._idle_evict  = idle_evict_seconds
+        self._session_factory = session_factory
 
         self._stats:     dict[str, Welford] = {}
         self._current:   dict[str, list]    = {}   # src_ip -> [interval_index, count]
@@ -43,6 +46,8 @@ class BaselineDetector:
         self._stop_event = threading.Event()
 
     def start(self) -> None:
+        if self._session_factory is not None:
+            self._restore()
         self._stop_event.clear()
         self._thread = threading.Thread(
             target=self._run,
@@ -55,6 +60,8 @@ class BaselineDetector:
         self._stop_event.set()
         if self._thread:
             self._thread.join(timeout=3)
+        if self._session_factory is not None:
+            self._flush(time.time())
 
     def _run(self) -> None:
         while not self._stop_event.is_set():
@@ -124,3 +131,19 @@ class BaselineDetector:
             self._current.pop(ip, None)
             del self._last_seen[ip]
         self._last_sweep = now
+        if self._session_factory is not None:
+            self._flush(now)
+
+    def _restore(self) -> None:
+        for ip, (n, mean, m2) in load_baselines(self._session_factory).items():
+            self._stats[ip]     = Welford.from_state(n, mean, m2)
+            self._last_seen[ip] = time.time()
+
+    def _flush(self, now: float) -> None:
+        if not self._stats:
+            return
+        save_baselines(
+            self._session_factory,
+            {ip: w.state() for ip, w in self._stats.items()},
+            now,
+        )

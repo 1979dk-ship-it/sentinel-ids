@@ -141,6 +141,7 @@ def main() -> None:
         z_medium           = base_cfg["z_medium"],
         z_high             = base_cfg["z_high"],
         idle_evict_seconds = base_cfg["idle_evict_seconds"],
+        session_factory    = SessionLocal,
     )
 
     resp_cfg        = config["response"]
