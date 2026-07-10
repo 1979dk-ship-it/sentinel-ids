@@ -8,6 +8,7 @@ from core.alerts.deduplicator import Deduplicator
 from core.capture.engine import PacketCapture
 from core.capture.parser import PacketParser
 from core.capture.queue import PacketQueue
+from core.detectors.baseline import BaselineDetector
 from core.detectors.arp_spoof import ArpSpoofDetector
 from core.detectors.brute_force import BruteForceDetector
 from core.detectors.dns_anomaly import DnsAnomalyDetector
@@ -131,6 +132,18 @@ def main() -> None:
         cooldown_seconds = syn_cfg["cooldown_seconds"],
     )
 
+    base_cfg      = config["detectors"]["baseline"]
+    base_detector = BaselineDetector(
+        pkt_queue.subscribe(),
+        alert_queue,
+        interval_seconds   = base_cfg["interval_seconds"],
+        min_samples        = base_cfg["min_samples"],
+        z_medium           = base_cfg["z_medium"],
+        z_high             = base_cfg["z_high"],
+        idle_evict_seconds = base_cfg["idle_evict_seconds"],
+        session_factory    = SessionLocal,
+    )
+
     resp_cfg        = config["response"]
     firewall        = FirewallManager(direction=resp_cfg["direction"])
     response_engine = ResponseEngine(firewall, SessionLocal, whitelist=resp_cfg["whitelist"])
@@ -148,6 +161,7 @@ def main() -> None:
         bf_detector.stop()
         dns_detector.stop()
         syn_detector.stop()
+        base_detector.stop()
         app.exit()
 
     signal.signal(signal.SIGINT, _shutdown)
@@ -158,6 +172,7 @@ def main() -> None:
     bf_detector.start()
     dns_detector.start()
     syn_detector.start()
+    base_detector.start()
 
     threading.Thread(
         target=_alert_loop,

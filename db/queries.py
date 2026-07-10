@@ -8,7 +8,7 @@ import time
 from sqlalchemy import select
 
 from core.alerts.alert import Alert
-from db.models import AlertRecord, BlockedIp
+from db.models import AlertRecord, Baseline, BlockedIp
 
 
 def save_alert(session_factory, alert: Alert) -> int:
@@ -114,3 +114,25 @@ def active_blocks(session_factory) -> list[BlockedIp]:
             .order_by(BlockedIp.blocked_at.desc())
         )
         return list(session.scalars(stmt).all())
+
+
+def save_baselines(session_factory, items: dict[str, tuple[int, float, float]],
+                   now: float | None = None) -> None:
+    """Upsert each source's Welford state (n, mean, m2), keyed by ip."""
+    if now is None:
+        now = time.time()
+    with session_factory() as session:
+        for ip, (n, mean, m2) in items.items():
+            record = session.get(Baseline, ip)
+            if record is None:
+                session.add(Baseline(ip=ip, n=n, mean=mean, m2=m2, updated_at=now))
+            else:
+                record.n, record.mean, record.m2, record.updated_at = n, mean, m2, now
+        session.commit()
+
+
+def load_baselines(session_factory) -> dict[str, tuple[int, float, float]]:
+    """Return every persisted baseline as ip -> (n, mean, m2)."""
+    with session_factory() as session:
+        rows = session.scalars(select(Baseline)).all()
+        return {r.ip: (r.n, r.mean, r.m2) for r in rows}

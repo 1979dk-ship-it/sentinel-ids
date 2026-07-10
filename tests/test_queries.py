@@ -9,9 +9,11 @@ from db.queries import (
     active_blocks,
     alerts_since,
     is_blocked,
+    load_baselines,
     record_block,
     record_unblock,
     save_alert,
+    save_baselines,
     update_alert_count,
 )
 
@@ -112,3 +114,21 @@ def test_reblock_after_unblock_creates_new_active_row(session_factory):
     record_block(session_factory, "1.1.1.1", "scan again", "user", now=2000.0)
     assert is_blocked(session_factory, "1.1.1.1") is True
     assert len(active_blocks(session_factory)) == 1
+
+
+def test_save_and_load_baselines_round_trip(session_factory):
+    items = {"1.1.1.1": (30, 100.0, 250.0), "2.2.2.2": (5, 3.0, 8.0)}
+    save_baselines(session_factory, items, now=1000.0)
+
+    assert load_baselines(session_factory) == items
+
+
+def test_save_baselines_upserts_existing_ip(session_factory):
+    save_baselines(session_factory, {"1.1.1.1": (30, 100.0, 250.0)}, now=1000.0)
+    save_baselines(session_factory, {"1.1.1.1": (31, 101.0, 260.0)}, now=1100.0)
+
+    assert load_baselines(session_factory) == {"1.1.1.1": (31, 101.0, 260.0)}
+
+
+def test_load_baselines_empty_is_empty_dict(session_factory):
+    assert load_baselines(session_factory) == {}
