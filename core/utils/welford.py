@@ -27,3 +27,14 @@ class Welford:
     @property
     def std(self) -> float:
         return self.variance ** 0.5
+
+    def state(self) -> tuple[int, float, float]:
+        return (self.n, self.mean, self._m2)
+
+    @classmethod
+    def from_state(cls, n: int, mean: float, m2: float) -> "Welford":
+        w = cls()
+        w.n    = n
+        w.mean = mean
+        w._m2  = m2
+        return w

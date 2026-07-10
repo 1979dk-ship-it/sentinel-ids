@@ -42,3 +42,15 @@ class BlockedIp(Base):
     reason:       Mapped[str]          = mapped_column(String)
     blocked_by:   Mapped[str]          = mapped_column(String)
     unblocked_at: Mapped[float | None] = mapped_column(Float, nullable=True, default=None)
+
+
+class Baseline(Base):
+    """Persisted Welford state (n, mean, M2) per source IP, so a learned
+    packet-rate baseline survives a restart instead of relearning from scratch."""
+    __tablename__ = "baselines"
+
+    ip:         Mapped[str]   = mapped_column(String, primary_key=True)
+    n:          Mapped[int]   = mapped_column(Integer)
+    mean:       Mapped[float] = mapped_column(Float)
+    m2:         Mapped[float] = mapped_column(Float)
+    updated_at: Mapped[float] = mapped_column(Float)

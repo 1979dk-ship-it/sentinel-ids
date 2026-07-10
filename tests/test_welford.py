@@ -41,6 +41,30 @@ def test_constant_values_have_zero_spread():
     assert w.std == pytest.approx(0.0)
 
 
+def test_state_round_trip_preserves_stats():
+    w = Welford()
+    for x in (2.0, 4.0, 6.0, 8.0):
+        w.update(x)
+    restored = Welford.from_state(*w.state())
+    assert restored.n == w.n
+    assert restored.mean == pytest.approx(w.mean)
+    assert restored.variance == pytest.approx(w.variance)
+
+
+def test_resumed_welford_keeps_learning():
+    w = Welford()
+    for x in (10.0, 12.0, 8.0):
+        w.update(x)
+    resumed = Welford.from_state(*w.state())
+
+    # a value fed to both after the restore must land them on identical stats,
+    # proving learning continues from the saved point rather than restarting
+    w.update(20.0)
+    resumed.update(20.0)
+    assert resumed.mean == pytest.approx(w.mean)
+    assert resumed.variance == pytest.approx(w.variance)
+
+
 def test_numerically_stable_on_large_offset():
     # Same spread as (1, 2, 3) but shifted by 1e9. The naive Var = E[x^2]-E[x]^2
     # form loses this to catastrophic cancellation; Welford keeps variance ~= 1.
