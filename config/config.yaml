@@ -35,6 +35,25 @@ detectors:
 alerts:
   dedup_window_seconds: 60
   pcap_capture_seconds: 30
+  scoring:
+    # Evidence – each term adds a bounded slice of points, and the three are summed.
+    severity_points:
+      LOW: 15
+      MEDIUM: 25
+      HIGH: 35
+    frequency_max: 20      # points a fully saturated repeat count is worth
+    frequency_cap: 64      # repeats at which the frequency term saturates
+    deviation_max: 10      # points a fully saturated deviation is worth
+    deviation_cap: 8.0     # z-score at which the deviation term saturates
+    # Amplifier – multiplies the evidence total, then the score is clamped to 100.
+    default_type_weight: 1.0
+    type_weights:
+      ARP_SPOOF: 1.8       # MITM – breaks the trust the whole segment relies on
+      SYN_FLOOD: 1.5
+      PORT_SCAN: 1.2
+      BRUTE_FORCE: 1.0
+      DNS_ANOMALY: 0.9
+      BASELINE_ANOMALY: 1.0
 
 database:
   path: sentinel.db
