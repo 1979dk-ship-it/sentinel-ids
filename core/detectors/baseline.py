@@ -19,14 +19,15 @@ class BaselineDetector:
 
     def __init__(
         self,
-        packet_queue:       queue.Queue,
-        alert_queue:        queue.Queue,
-        interval_seconds:   int   = 10,
-        min_samples:        int   = 30,
-        z_medium:           float = 3.0,
-        z_high:             float = 5.0,
-        idle_evict_seconds: int   = 3600,
-        session_factory           = None,
+        packet_queue:              queue.Queue,
+        alert_queue:               queue.Queue,
+        interval_seconds:          int   = 10,
+        min_samples:               int   = 30,
+        z_medium:                  float = 3.0,
+        z_high:                    float = 5.0,
+        idle_evict_seconds:        int   = 3600,
+        deviation_max_age_seconds: int   = 30,
+        session_factory                  = None,
     ):
         self._packets     = packet_queue
         self._alerts      = alert_queue
@@ -35,12 +36,19 @@ class BaselineDetector:
         self._z_medium    = z_medium
         self._z_high      = z_high
         self._idle_evict  = idle_evict_seconds
-        self._session_factory = session_factory
+        self._deviation_max_age = deviation_max_age_seconds
+        self._session_factory   = session_factory
 
         self._stats:     dict[str, Welford] = {}
         self._current:   dict[str, list]    = {}   # src_ip -> [interval_index, count]
         self._last_seen: dict[str, float]   = {}
         self._last_sweep: float = 0.0
+
+        # Published for the scoring layer, which reads it from the alert thread.
+        # A frozen (z, measured_at) pair, never the live Welford: the reader can
+        # never catch a half-updated mean/M2 because it never sees them at all.
+        self._deviation: dict[str, tuple[float, float]] = {}
+        self._lock = threading.Lock()
 
         self._thread: threading.Thread | None = None
         self._stop_event = threading.Event()
@@ -98,12 +106,34 @@ class BaselineDetector:
 
         if w.n >= self._min_samples and w.std > 0:
             z = (sample - w.mean) / w.std
+            with self._lock:
+                self._deviation[src_ip] = (z, now)
             if z >= self._z_medium:
                 severity = "HIGH" if z >= self._z_high else "MEDIUM"
                 self._emit(src_ip, severity, sample, w, z, now)
                 return   # anomalous -> excluded from the baseline (poison resistance)
 
         w.update(sample)
+
+    def deviation_for(self, src_ip: str | None, now: float) -> float | None:
+        """This source's z-score from its last completed interval, or None.
+
+        None is the detector declining to answer: it has never had enough samples
+        for this source, or its last measurement has aged out. Ageing matters
+        because a bucket only closes when the next packet arrives - a host that
+        bursts and then falls silent closes no further buckets, so without an
+        expiry its spike would keep amplifying scores long after it ended.
+        """
+        if src_ip is None:
+            return None
+        with self._lock:
+            entry = self._deviation.get(src_ip)
+        if entry is None:
+            return None
+        z, measured_at = entry
+        if now - measured_at > self._deviation_max_age:
+            return None
+        return z
 
     def _emit(self, src_ip: str, severity: str, sample: int, w: Welford, z: float, now: float) -> None:
         self._alerts.put(Alert(
@@ -130,6 +160,10 @@ class BaselineDetector:
             self._stats.pop(ip, None)
             self._current.pop(ip, None)
             del self._last_seen[ip]
+        if stale:
+            with self._lock:
+                for ip in stale:
+                    self._deviation.pop(ip, None)
         self._last_sweep = now
         if self._session_factory is not None:
             self._flush(now)

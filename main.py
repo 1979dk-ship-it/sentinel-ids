@@ -137,12 +137,13 @@ def main() -> None:
     base_detector = BaselineDetector(
         pkt_queue.subscribe(),
         alert_queue,
-        interval_seconds   = base_cfg["interval_seconds"],
-        min_samples        = base_cfg["min_samples"],
-        z_medium           = base_cfg["z_medium"],
-        z_high             = base_cfg["z_high"],
-        idle_evict_seconds = base_cfg["idle_evict_seconds"],
-        session_factory    = SessionLocal,
+        interval_seconds          = base_cfg["interval_seconds"],
+        min_samples               = base_cfg["min_samples"],
+        z_medium                  = base_cfg["z_medium"],
+        z_high                    = base_cfg["z_high"],
+        idle_evict_seconds        = base_cfg["idle_evict_seconds"],
+        deviation_max_age_seconds = base_cfg["deviation_max_age_seconds"],
+        session_factory           = SessionLocal,
     )
 
     resp_cfg        = config["response"]
