@@ -82,7 +82,7 @@ sentinel/
 ├── db/                          # Data persistence layer
 │   ├── database.py              # SQLAlchemy engine + Base + init_db()
 │   ├── models.py                # Tables: alerts, blocked_ips, baselines
-│   └── queries.py               # save_alert, update_alert_count, alerts_since, save/load_baselines, block/unblock
+│   └── queries.py               # save_alert, update_alert_repeat, alerts_since, save/load_baselines, block/unblock
 │
 ├── ui/
 │   ├── tui/                     # Terminal UI (Textual framework) – primary interface

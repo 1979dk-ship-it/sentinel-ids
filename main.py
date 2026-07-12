@@ -17,7 +17,7 @@ from core.detectors.syn_flood import SynFloodDetector
 from core.response.engine import ResponseEngine
 from core.response.firewall import FirewallManager
 from db.database import init_db
-from db.queries import save_alert, update_alert_count
+from db.queries import save_alert, update_alert_repeat
 from ui.tui.app import SentinelApp
 
 
@@ -37,7 +37,8 @@ def _handle_alert(alert: Alert, session_factory, deduper: Deduplicator, app: Sen
         deduper.attach_row_id(alert, row_id)
         app.call_from_thread(app.push_alert, alert)
     else:
-        update_alert_count(session_factory, decision.row_id, decision.count, alert.timestamp)
+        update_alert_repeat(session_factory, decision.row_id, decision.count,
+                            alert.score, alert.timestamp)
         app.call_from_thread(app.push_alert_count, alert, decision.count)
 
 

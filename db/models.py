@@ -27,6 +27,7 @@ class AlertRecord(Base):
     details:   Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
     count:     Mapped[int]            = mapped_column(Integer, default=1)
     last_seen: Mapped[float]          = mapped_column(Float)
+    score:     Mapped[int]            = mapped_column(Integer, default=0)
 
 
 class BlockedIp(Base):

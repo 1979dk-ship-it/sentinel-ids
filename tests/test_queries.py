@@ -14,7 +14,7 @@ from db.queries import (
     record_unblock,
     save_alert,
     save_baselines,
-    update_alert_count,
+    update_alert_repeat,
 )
 
 
@@ -40,19 +40,28 @@ def test_save_alert_returns_id_and_dedup_defaults(session_factory):
     assert row.last_seen == 1000.0   # first sighting == its own timestamp
 
 
-def test_update_alert_count_persists_count_and_last_seen(session_factory):
-    alert_id = save_alert(session_factory, Alert("DNS_ANOMALY", "HIGH", "5.5.5.5", timestamp=1000.0))
+def test_save_alert_persists_the_score(session_factory):
+    save_alert(session_factory, Alert("PORT_SCAN", "HIGH", "1.2.3.4", timestamp=1000.0, score=63))
 
-    update_alert_count(session_factory, alert_id, count=47, now=1030.0)
+    row = alerts_since(session_factory, seconds=3600, now=1000.0)[0]
+    assert row.score == 63
+
+
+def test_update_alert_repeat_persists_count_score_and_last_seen(session_factory):
+    alert_id = save_alert(session_factory,
+                          Alert("DNS_ANOMALY", "HIGH", "5.5.5.5", timestamp=1000.0, score=31))
+
+    update_alert_repeat(session_factory, alert_id, count=47, score=52, now=1030.0)
 
     row = alerts_since(session_factory, seconds=3600, now=1030.0)[0]
     assert row.count == 47
+    assert row.score == 52           # the score climbs with the count, not frozen at 31
     assert row.last_seen == 1030.0
     assert row.timestamp == 1000.0   # the window's start stays put
 
 
-def test_update_alert_count_missing_row_is_noop(session_factory):
-    update_alert_count(session_factory, alert_id=999, count=5, now=1000.0)  # must not raise
+def test_update_alert_repeat_missing_row_is_noop(session_factory):
+    update_alert_repeat(session_factory, alert_id=999, count=5, score=40, now=1000.0)  # must not raise
 
 
 def test_save_alert_with_null_src_ip(session_factory):
