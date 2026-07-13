@@ -56,10 +56,16 @@ function countText(count) {
     return count > 1 ? `×${count}` : "";   // a first sighting shows no multiplier
 }
 
+function paintScore(el, msg) {
+    el.textContent = msg.score;
+    el.dataset.level = msg.score_level;   // the band the server resolved; drives the colour
+}
+
 function renderAlert(msg) {
     const existing = listEl.querySelector(`li[data-id="${msg.id}"]`);
-    if (existing) {                      // a repeat: refresh its counter in place
+    if (existing) {                      // a repeat: refresh everything that moves with it
         existing.querySelector(".alert-count").textContent = countText(msg.count);
+        paintScore(existing.querySelector(".alert-score"), msg);   // the score climbs too
         return;
     }
 
@@ -68,7 +74,11 @@ function renderAlert(msg) {
     li.dataset.id = msg.id;              // lets a later count bump find this row
     li.dataset.severity = msg.severity;  // drives the CSS colour chain
 
+    const score = cell("alert-score", "");
+    paintScore(score, msg);
+
     li.append(
+        score,
         cell("alert-time", formatTime(msg.timestamp)),
         cell("alert-type", msg.type),
         cell("alert-ip", msg.src_ip),

@@ -3,6 +3,15 @@ import math
 from core.alerts.alert import Alert
 
 
+def score_level(score: int, score_high: int, score_medium: int) -> str:
+    """Which band a score falls into. A band, not a colour – each UI paints it itself."""
+    if score >= score_high:
+        return "high"
+    if score >= score_medium:
+        return "medium"
+    return "low"
+
+
 class ThreatScorer:
     """Ranks an alert 0-100 so alerts of different types can be compared.
 

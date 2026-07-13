@@ -5,16 +5,10 @@ from textual.widget import Widget
 from textual.widgets import RichLog
 
 from core.alerts.alert import Alert
+from core.alerts.scoring import score_level
 
 _SEVERITY_COLOR = {"HIGH": "red", "MEDIUM": "yellow", "LOW": "green"}
-
-
-def _score_color(score: int, score_high: int, score_medium: int) -> str:
-    if score >= score_high:
-        return "red"
-    if score >= score_medium:
-        return "yellow"
-    return "green"
+_SCORE_COLOR    = {"high": "red", "medium": "yellow", "low": "green"}
 
 
 def format_alert_line(alert: Alert, count: int, score_high: int = 70,
@@ -26,7 +20,7 @@ def format_alert_line(alert: Alert, count: int, score_high: int = 70,
     overall shows up as a red label beside an amber score.
     """
     color       = _SEVERITY_COLOR.get(alert.severity, "white")
-    score_color = _score_color(alert.score, score_high, score_medium)
+    score_color = _SCORE_COLOR[score_level(alert.score, score_high, score_medium)]
     ts          = datetime.fromtimestamp(alert.timestamp).strftime("%H:%M:%S")
     line = (
         f"[{score_color}][{alert.score:>3}][/{score_color}] "

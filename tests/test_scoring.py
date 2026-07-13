@@ -8,7 +8,7 @@ score asserted here is the score the running system produces.
 import pytest
 
 from core.alerts.alert import Alert
-from core.alerts.scoring import ThreatScorer
+from core.alerts.scoring import ThreatScorer, score_level
 
 
 def _scorer(**overrides) -> ThreatScorer:
@@ -103,3 +103,10 @@ def test_frequency_cap_of_one_is_rejected():
     # log2(1) is 0 and would divide the frequency curve by zero.
     with pytest.raises(ValueError):
         _scorer(frequency_cap=1)
+
+
+def test_score_bands_are_inclusive_at_their_lower_edge():
+    assert score_level(70, score_high=70, score_medium=40) == "high"
+    assert score_level(69, score_high=70, score_medium=40) == "medium"
+    assert score_level(40, score_high=70, score_medium=40) == "medium"
+    assert score_level(39, score_high=70, score_medium=40) == "low"
