@@ -9,17 +9,41 @@ from core.alerts.alert import Alert
 _SEVERITY_COLOR = {"HIGH": "red", "MEDIUM": "yellow", "LOW": "green"}
 
 
-def format_alert_line(alert: Alert, count: int) -> str:
-    color = _SEVERITY_COLOR.get(alert.severity, "white")
-    ts    = datetime.fromtimestamp(alert.timestamp).strftime("%H:%M:%S")
-    line  = (
+def _score_color(score: int, score_high: int, score_medium: int) -> str:
+    if score >= score_high:
+        return "red"
+    if score >= score_medium:
+        return "yellow"
+    return "green"
+
+
+def format_alert_line(alert: Alert, count: int, score_high: int = 70,
+                      score_medium: int = 40) -> str:
+    """One alert as a line: score, severity, time, type, source, details, repeats.
+
+    The score carries its own colour rather than the severity's, so the gap
+    between them is legible: a detector shouting HIGH on something that ranks 43
+    overall shows up as a red label beside an amber score.
+    """
+    color       = _SEVERITY_COLOR.get(alert.severity, "white")
+    score_color = _score_color(alert.score, score_high, score_medium)
+    ts          = datetime.fromtimestamp(alert.timestamp).strftime("%H:%M:%S")
+    line = (
+        f"[{score_color}][{alert.score:>3}][/{score_color}] "
         f"[{color}][{alert.severity:<6}][/{color}] "
         f"{ts}  [{color}]{alert.type:<14}[/{color}] "
         f"src={alert.src_ip}"
     )
-    if alert.details:
-        extra = "  ".join(f"{k}={v}" for k, v in list(alert.details.items())[:2])
+
+    # deviation is rendered on its own below, so keep it out of the generic dump.
+    details = {k: v for k, v in alert.details.items() if k != "deviation"}
+    if details:
+        extra = "  ".join(f"{k}={v}" for k, v in list(details.items())[:2])
         line += f"  {extra}"
+
+    deviation = alert.details.get("deviation")
+    line += "  z=n/a" if deviation is None else f"  z={deviation}"
+
     if count > 1:
         line += f"  [bold]×{count}[/bold]"
     return line
@@ -30,6 +54,11 @@ class AlertPanel(Widget):
 
     BORDER_TITLE = "Active Alerts"
 
+    def __init__(self, score_high: int = 70, score_medium: int = 40, **kwargs):
+        super().__init__(**kwargs)
+        self._score_high   = score_high
+        self._score_medium = score_medium
+
     def compose(self) -> ComposeResult:
         yield RichLog(highlight=True, markup=True, max_lines=100, id="alert-richlog")
 
@@ -37,4 +66,4 @@ class AlertPanel(Widget):
         log = self.query_one(RichLog)
         log.clear()
         for alert, count in episodes:
-            log.write(format_alert_line(alert, count))
+            log.write(format_alert_line(alert, count, self._score_high, self._score_medium))

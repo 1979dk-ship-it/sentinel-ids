@@ -63,6 +63,10 @@ database:
 network:
   interface: auto
 
+ui:
+  score_high: 70
+  score_medium: 40
+
 web:
   host: 127.0.0.1
   port: 8888

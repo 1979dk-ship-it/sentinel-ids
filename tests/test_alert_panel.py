@@ -1,14 +1,15 @@
 """Unit tests for the alert line formatter.
 
 Pure string formatting – no Textual app is mounted; we only assert what a
-rendered alert line contains, in particular the repeat counter.
+rendered alert line contains: the repeat counter, the score and its colour.
 """
 from core.alerts.alert import Alert
 from ui.tui.widgets.alert_panel import format_alert_line
 
 
-def _alert():
-    return Alert(type="ARP_SPOOF", severity="HIGH", src_ip="10.0.0.1", timestamp=1000.0)
+def _alert(score=0, **details):
+    return Alert(type="ARP_SPOOF", severity="HIGH", src_ip="10.0.0.1",
+                 timestamp=1000.0, score=score, details=details)
 
 
 def test_count_of_one_shows_no_multiplier():
@@ -20,3 +21,45 @@ def test_count_of_one_shows_no_multiplier():
 def test_count_above_one_shows_multiplier():
     line = format_alert_line(_alert(), count=473)
     assert "×473" in line
+
+
+def test_score_is_shown():
+    line = format_alert_line(_alert(score=63), count=1)
+    assert "63" in line
+
+
+def test_score_carries_its_own_colour_not_the_severity_colour():
+    # The detector's label and the cross-type ranking can disagree, and the line
+    # has to show it: a HIGH (red) alert that only ranks 43 gets an amber score.
+    line = format_alert_line(_alert(score=43), count=1, score_high=70, score_medium=40)
+    assert "[yellow][ 43][/yellow]" in line
+    assert "[red][HIGH  ][/red]" in line
+
+
+def test_score_at_the_high_threshold_is_red():
+    line = format_alert_line(_alert(score=70), count=1, score_high=70, score_medium=40)
+    assert "[red][ 70][/red]" in line
+
+
+def test_score_below_the_medium_threshold_is_green():
+    line = format_alert_line(_alert(score=39), count=1, score_high=70, score_medium=40)
+    assert "[green][ 39][/green]" in line
+
+
+def test_a_measured_deviation_is_shown():
+    line = format_alert_line(_alert(score=63, deviation=3.5), count=1)
+    assert "z=3.5" in line
+
+
+def test_an_unmeasured_deviation_reads_as_not_available():
+    # None means the source has no usable baseline - it must not render as z=0,
+    # which would claim the host was measured and found normal.
+    line = format_alert_line(_alert(score=63, deviation=None), count=1)
+    assert "z=n/a" in line
+    assert "z=0" not in line
+
+
+def test_deviation_is_not_repeated_in_the_details_dump():
+    line = format_alert_line(_alert(score=63, mac="aa:bb:cc", deviation=3.5), count=1)
+    assert line.count("z=3.5") == 1
+    assert "deviation=" not in line

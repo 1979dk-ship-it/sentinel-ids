@@ -5,6 +5,7 @@ import yaml
 
 from core.alerts.alert import Alert
 from core.alerts.deduplicator import Deduplicator
+from core.alerts.scoring import ThreatScorer
 from core.capture.engine import PacketCapture
 from core.capture.parser import PacketParser
 from core.capture.queue import PacketQueue
@@ -27,11 +28,23 @@ def _load_config(path: str = "config/config.yaml") -> dict:
         return yaml.safe_load(f)
 
 
-def _handle_alert(alert: Alert, session_factory, deduper: Deduplicator, app: SentinelApp) -> None:
-    """Route one alert through dedup: a new episode is persisted and shown, a
-    repeat only bumps the stored count – so a storm becomes one row, not thousands.
+def _handle_alert(alert: Alert, session_factory, deduper: Deduplicator,
+                  scorer: ThreatScorer, deviation_for, app: SentinelApp) -> None:
+    """Route one alert through dedup, scoring it on the way.
+
+    A new episode is persisted and shown, a repeat only bumps the stored count –
+    so a storm becomes one row, not thousands. Scoring runs after dedup, never
+    before, because the repeat count is one of the score's three inputs: a repeat
+    re-scores higher than the first sighting did, and that is how a live attack's
+    score climbs. deviation_for is a plain callable, not the BaselineDetector
+    itself, so this loop stays free of any detector.
     """
-    decision = deduper.process(alert)
+    decision  = deduper.process(alert)
+    deviation = deviation_for(alert.src_ip, alert.timestamp)
+
+    alert.details["deviation"] = None if deviation is None else round(deviation, 1)
+    alert.score = scorer.score(alert, decision.count, deviation)
+
     if decision.is_new:
         row_id = save_alert(session_factory, alert)
         deduper.attach_row_id(alert, row_id)
@@ -42,7 +55,8 @@ def _handle_alert(alert: Alert, session_factory, deduper: Deduplicator, app: Sen
         app.call_from_thread(app.push_alert_count, alert, decision.count)
 
 
-def _alert_loop(alert_queue: queue.Queue, session_factory, deduper: Deduplicator, app: SentinelApp) -> None:
+def _alert_loop(alert_queue: queue.Queue, session_factory, deduper: Deduplicator,
+                scorer: ThreatScorer, deviation_for, app: SentinelApp) -> None:
     """Consume the alert queue, handling each alert in isolation.
 
     A failure on one alert (a transient DB error, an unexpected payload) is
@@ -55,7 +69,7 @@ def _alert_loop(alert_queue: queue.Queue, session_factory, deduper: Deduplicator
         except queue.Empty:
             continue
         try:
-            _handle_alert(alert, session_factory, deduper, app)
+            _handle_alert(alert, session_factory, deduper, scorer, deviation_for, app)
         except Exception as exc:
             try:
                 app.call_from_thread(app.notify, f"Alert error: {exc}", severity="error")
@@ -78,6 +92,7 @@ def main() -> None:
     pkt_queue   = PacketQueue()
     alert_queue = queue.Queue()
     deduper     = Deduplicator(config["alerts"]["dedup_window_seconds"])
+    scorer      = ThreatScorer(**config["alerts"]["scoring"])
 
     consumer    = pkt_queue.subscribe()
     capture     = PacketCapture(interface=interface, parser=parser, queue=pkt_queue)
@@ -150,10 +165,13 @@ def main() -> None:
     firewall        = FirewallManager(direction=resp_cfg["direction"])
     response_engine = ResponseEngine(firewall, SessionLocal, whitelist=resp_cfg["whitelist"])
 
+    ui_cfg = config["ui"]
     app = SentinelApp(
         packet_queue=consumer,
         session_factory=SessionLocal,
         response_engine=response_engine,
+        score_high   = ui_cfg["score_high"],
+        score_medium = ui_cfg["score_medium"],
     )
 
     def _shutdown(sig, frame):
@@ -178,7 +196,7 @@ def main() -> None:
 
     threading.Thread(
         target=_alert_loop,
-        args=(alert_queue, SessionLocal, deduper, app),
+        args=(alert_queue, SessionLocal, deduper, scorer, base_detector.deviation_for, app),
         daemon=True,
     ).start()
 

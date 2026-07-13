@@ -154,7 +154,7 @@ class _FakeApp:
         pass
 
 
-def test_baseline_anomaly_reaches_the_database(session_factory):
+def test_baseline_anomaly_reaches_the_database(session_factory, scorer):
     alerts = queue.Queue()
     det = _detector(alerts)
     _feed(det, "10.0.0.5", [10, 11, 9, 10, 50])   # learn a baseline, then a spike
@@ -163,7 +163,8 @@ def test_baseline_anomaly_reaches_the_database(session_factory):
     app     = _FakeApp()
     while True:
         try:
-            _handle_alert(alerts.get_nowait(), session_factory, deduper, app)
+            _handle_alert(alerts.get_nowait(), session_factory, deduper,
+                          scorer, det.deviation_for, app)
         except queue.Empty:
             break
 
@@ -172,6 +173,11 @@ def test_baseline_anomaly_reaches_the_database(session_factory):
     assert rows[0].type == "BASELINE_ANOMALY"
     assert rows[0].severity == "HIGH"
     assert rows[0].details["observed"] == 50
+
+    # The scorer read the very deviation the detector had just published, so the
+    # spike shows up in the score rather than falling back to the neutral path.
+    assert rows[0].details["deviation"] == rows[0].details["z_score"]
+    assert rows[0].score > 0
 
 
 def test_learning_resumes_after_restore(session_factory):
