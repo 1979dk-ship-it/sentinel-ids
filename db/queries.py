@@ -34,12 +34,12 @@ def save_alert(session_factory, alert: Alert) -> int:
 
 
 def update_alert_repeat(session_factory, alert_id: int, count: int, score: int,
-                        now: float) -> None:
-    """Persist an episode's state after a repeat: count, score and last_seen.
+                        deviation: float | None, now: float) -> None:
+    """Persist an episode's state after a repeat: count, score, deviation, last_seen.
 
-    The score is rewritten and not only the count, because the count feeds the
-    score – leave it out and the row's count climbs while its score stays frozen
-    at the first sighting's value. A missing row is a no-op.
+    Everything feeding the score is rewritten, or the row ends up showing a score
+    of 100 beside the stale deviation that plainly did not produce it. The
+    detector's own details stay as the episode opened. A missing row is a no-op.
     """
     with session_factory() as session:
         record = session.get(AlertRecord, alert_id)
@@ -47,6 +47,7 @@ def update_alert_repeat(session_factory, alert_id: int, count: int, score: int,
             return
         record.count     = count
         record.score     = score
+        record.details   = {**record.details, "deviation": deviation}
         record.last_seen = now
         session.commit()
 

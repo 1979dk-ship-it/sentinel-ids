@@ -51,7 +51,7 @@ def test_update_alert_repeat_persists_count_score_and_last_seen(session_factory)
     alert_id = save_alert(session_factory,
                           Alert("DNS_ANOMALY", "HIGH", "5.5.5.5", timestamp=1000.0, score=31))
 
-    update_alert_repeat(session_factory, alert_id, count=47, score=52, now=1030.0)
+    update_alert_repeat(session_factory, alert_id, count=47, score=52, deviation=2.0, now=1030.0)
 
     row = alerts_since(session_factory, seconds=3600, now=1030.0)[0]
     assert row.count == 47
@@ -60,8 +60,25 @@ def test_update_alert_repeat_persists_count_score_and_last_seen(session_factory)
     assert row.timestamp == 1000.0   # the window's start stays put
 
 
+def test_update_alert_repeat_refreshes_the_deviation_but_not_the_details(session_factory):
+    # A stale deviation would leave the row claiming a score of 100 next to the
+    # 0.6 that could not have produced it. The detector's own findings stay put.
+    alert_id = save_alert(session_factory, Alert(
+        "ARP_SPOOF", "HIGH", "10.0.0.5", timestamp=1000.0, score=64,
+        details={"reason": "mac_conflict", "known_mac": "aa:aa", "deviation": 0.6},
+    ))
+
+    update_alert_repeat(session_factory, alert_id, count=15, score=100, deviation=81.5, now=1030.0)
+
+    row = alerts_since(session_factory, seconds=3600, now=1030.0)[0]
+    assert row.details["deviation"] == 81.5           # moved with the score
+    assert row.details["known_mac"] == "aa:aa"        # the episode's opening findings
+    assert row.details["reason"] == "mac_conflict"
+
+
 def test_update_alert_repeat_missing_row_is_noop(session_factory):
-    update_alert_repeat(session_factory, alert_id=999, count=5, score=40, now=1000.0)  # must not raise
+    update_alert_repeat(session_factory, alert_id=999, count=5, score=40,
+                        deviation=None, now=1000.0)   # must not raise
 
 
 def test_save_alert_with_null_src_ip(session_factory):

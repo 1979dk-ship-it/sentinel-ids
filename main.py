@@ -51,7 +51,7 @@ def _handle_alert(alert: Alert, session_factory, deduper: Deduplicator,
         app.call_from_thread(app.push_alert, alert)
     else:
         update_alert_repeat(session_factory, decision.row_id, decision.count,
-                            alert.score, alert.timestamp)
+                            alert.score, alert.details["deviation"], alert.timestamp)
         app.call_from_thread(app.push_alert_count, alert, decision.count)
 
 
