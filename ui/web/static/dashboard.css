@@ -100,7 +100,7 @@ body {
 
 .alert-item {
     display: grid;
-    grid-template-columns: auto auto 1fr auto auto;
+    grid-template-columns: auto auto auto 1fr auto auto;
     gap: 12px;
     align-items: center;
     padding: 8px 12px;
@@ -120,10 +120,16 @@ body {
 .alert-ip    { color: var(--text-dim); }
 .alert-sev   { font-weight: 700; text-align: right; }
 .alert-count { color: var(--accent); font-weight: 700; text-align: right; }
+.alert-score { font-weight: 700; text-align: right; min-width: 3ch; }
 
 .alert-item[data-severity="HIGH"]   .alert-sev { color: var(--high); }
 .alert-item[data-severity="MEDIUM"] .alert-sev { color: var(--medium); }
 .alert-item[data-severity="LOW"]    .alert-sev { color: var(--low); }
+
+/* the score's own band – it can disagree with the severity beside it */
+.alert-score[data-level="high"]   { color: var(--high); }
+.alert-score[data-level="medium"] { color: var(--medium); }
+.alert-score[data-level="low"]    { color: var(--low); }
 
 @keyframes slide-in {
     from { opacity: 0; transform: translateY(-6px); }

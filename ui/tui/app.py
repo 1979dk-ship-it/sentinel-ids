@@ -26,11 +26,14 @@ class SentinelApp(App):
         ("u", "unblock_last",  "Unblock IP"),
     ]
 
-    def __init__(self, packet_queue: queue.Queue, session_factory, response_engine):
+    def __init__(self, packet_queue: queue.Queue, session_factory, response_engine,
+                 score_high: int = 70, score_medium: int = 40):
         super().__init__()
         self._packet_queue    = packet_queue
         self._session_factory = session_factory
         self._response_engine = response_engine
+        self._score_high      = score_high
+        self._score_medium    = score_medium
         self._packet_count    = 0
         self._alert_count     = 0
         self._last_alert: Alert | None = None   # the IP that 'b' will act on
@@ -42,7 +45,8 @@ class SentinelApp(App):
         yield StatsBar(id="stats-bar")
         with Horizontal(id="main-panel"):
             yield PacketLog(id="packet-log")
-            yield AlertPanel(id="alert-panel")
+            yield AlertPanel(id="alert-panel",
+                             score_high=self._score_high, score_medium=self._score_medium)
         yield Footer()
 
     def on_mount(self) -> None:
@@ -76,9 +80,11 @@ class SentinelApp(App):
         self.query_one(StatsBar).update_alerts(self._alert_count)
 
     def push_alert_count(self, alert: Alert, count: int) -> None:
-        # A repeat: bump the count in place, keeping the episode's first line.
+        # A repeat: keep the episode's first line, but the score moves with the count.
         key      = dedup_key(alert)
         shown, _ = self._alert_episodes.get(key, (alert, count))
+        shown.score = alert.score
+        shown.details["deviation"] = alert.details.get("deviation")
         self._alert_episodes[key] = (shown, count)
         self._last_alert   = shown
         self._alerts_dirty = True

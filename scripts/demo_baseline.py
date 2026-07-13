@@ -19,7 +19,10 @@ import time
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
+import yaml
+
 from core.alerts.deduplicator import Deduplicator
+from core.alerts.scoring import ThreatScorer
 from core.capture.queue import PacketQueue
 from core.detectors.baseline import BaselineDetector
 from core.response.engine import ResponseEngine
@@ -56,10 +59,16 @@ def _feeder(pkt_queue: PacketQueue, stop: threading.Event) -> None:
 
 
 def main() -> None:
+    config = yaml.safe_load(
+        open(os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+                          "config", "config.yaml"))
+    )
+
     session_factory = init_db(os.path.join(tempfile.mkdtemp(), "demo.db"))
     pkt_queue   = PacketQueue()
     alert_queue = queue.Queue()
     deduper     = Deduplicator(window_seconds=60)
+    scorer      = ThreatScorer(**config["alerts"]["scoring"])
 
     consumer = pkt_queue.subscribe()
     detector = BaselineDetector(
@@ -72,7 +81,9 @@ def main() -> None:
     app = SentinelApp(packet_queue=consumer, session_factory=session_factory, response_engine=response)
 
     threading.Thread(
-        target=_alert_loop, args=(alert_queue, session_factory, deduper, app), daemon=True
+        target=_alert_loop,
+        args=(alert_queue, session_factory, deduper, scorer, detector.deviation_for, app),
+        daemon=True,
     ).start()
     detector.start()
 

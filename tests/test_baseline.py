@@ -103,6 +103,46 @@ def test_missing_src_ip_is_ignored():
     assert alerts.empty()
 
 
+def test_deviation_is_none_while_still_learning():
+    det = _detector(queue.Queue(), min_samples=5)
+    _feed(det, "10.0.0.5", [10, 10, 500])   # only 3 samples, below min_samples
+
+    assert det.deviation_for("10.0.0.5", now=1030.0) is None
+
+
+def test_deviation_is_none_for_an_unknown_source():
+    det = _detector(queue.Queue())
+    assert det.deviation_for("9.9.9.9", now=1000.0) is None
+    assert det.deviation_for(None, now=1000.0) is None
+
+
+def test_deviation_reports_the_last_closed_bucket():
+    det = _detector(queue.Queue())
+    _feed(det, "10.0.0.5", [10, 11, 9, 10, 50])   # the spike bucket closes at t=1050
+
+    z = det.deviation_for("10.0.0.5", now=1050.0)
+    assert z is not None and z > 3.0             # 50 against a learned ~10 is a wide spike
+
+
+def test_deviation_below_the_baseline_is_reported_as_negative():
+    # The detector reports what it measured; flooring a quiet host at zero is the
+    # scorer's job, not the detector's.
+    det = _detector(queue.Queue())
+    _feed(det, "10.0.0.5", [100, 110, 90, 100, 10])   # the last bucket is a drop
+
+    assert det.deviation_for("10.0.0.5", now=1050.0) < 0
+
+
+def test_deviation_expires_once_stale():
+    # The source fell silent after the spike, so no further bucket ever closes and
+    # the reading is never refreshed. It must expire rather than amplify forever.
+    det = _detector(queue.Queue(), deviation_max_age_seconds=30)
+    _feed(det, "10.0.0.5", [10, 11, 9, 10, 50])   # measured at t=1050
+
+    assert det.deviation_for("10.0.0.5", now=1075.0) is not None   # 25s old
+    assert det.deviation_for("10.0.0.5", now=1090.0) is None       # 40s old
+
+
 class _FakeApp:
     def call_from_thread(self, fn, *args):
         fn(*args)
@@ -114,7 +154,7 @@ class _FakeApp:
         pass
 
 
-def test_baseline_anomaly_reaches_the_database(session_factory):
+def test_baseline_anomaly_reaches_the_database(session_factory, scorer):
     alerts = queue.Queue()
     det = _detector(alerts)
     _feed(det, "10.0.0.5", [10, 11, 9, 10, 50])   # learn a baseline, then a spike
@@ -123,7 +163,8 @@ def test_baseline_anomaly_reaches_the_database(session_factory):
     app     = _FakeApp()
     while True:
         try:
-            _handle_alert(alerts.get_nowait(), session_factory, deduper, app)
+            _handle_alert(alerts.get_nowait(), session_factory, deduper,
+                          scorer, det.deviation_for, app)
         except queue.Empty:
             break
 
@@ -132,6 +173,11 @@ def test_baseline_anomaly_reaches_the_database(session_factory):
     assert rows[0].type == "BASELINE_ANOMALY"
     assert rows[0].severity == "HIGH"
     assert rows[0].details["observed"] == 50
+
+    # The scorer read the very deviation the detector had just published, so the
+    # spike shows up in the score rather than falling back to the neutral path.
+    assert rows[0].details["deviation"] == rows[0].details["z_score"]
+    assert rows[0].score > 0
 
 
 def test_learning_resumes_after_restore(session_factory):

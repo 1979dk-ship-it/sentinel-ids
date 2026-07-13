@@ -26,23 +26,28 @@ def save_alert(session_factory, alert: Alert) -> int:
             src_ip    = alert.src_ip,
             details   = alert.details,
             last_seen = alert.timestamp,
+            score     = alert.score,
         )
         session.add(record)
         session.commit()
         return record.id
 
 
-def update_alert_count(session_factory, alert_id: int, count: int, now: float) -> None:
-    """Persist the dedup layer's running count onto its alert row.
+def update_alert_repeat(session_factory, alert_id: int, count: int, score: int,
+                        deviation: float | None, now: float) -> None:
+    """Persist an episode's state after a repeat: count, score, deviation, last_seen.
 
-    The Deduplicator owns the count; this mirrors the latest value and stamps
-    last_seen with the most recent repeat. A missing row is a no-op.
+    Everything feeding the score is rewritten, or the row ends up showing a score
+    of 100 beside the stale deviation that plainly did not produce it. The
+    detector's own details stay as the episode opened. A missing row is a no-op.
     """
     with session_factory() as session:
         record = session.get(AlertRecord, alert_id)
         if record is None:
             return
         record.count     = count
+        record.score     = score
+        record.details   = {**record.details, "deviation": deviation}
         record.last_seen = now
         session.commit()
 
